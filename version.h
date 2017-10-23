@@ -1,0 +1,1 @@
+#define LAMMPS_VERSION "11 Aug 2017"
