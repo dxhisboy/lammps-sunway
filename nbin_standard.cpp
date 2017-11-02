@@ -51,7 +51,7 @@ NBinStandard::NBinStandard(LAMMPS *lmp) : NBin(lmp) {}
    mbinhi = highest global bin any of my ghost atoms could fall into
    mbin = number of bins I need in a dimension
 ------------------------------------------------------------------------- */
-
+#include "gptl.h"
 void NBinStandard::setup_bins(int style)
 {
   // bbox = size of bbox of entire domain
@@ -64,7 +64,7 @@ void NBinStandard::setup_bins(int style)
 
   double bbox[3],bsubboxlo[3],bsubboxhi[3];
   double *cutghost = comm->cutghost;
-
+  GPTLstart("setup_bins");
   if (triclinic == 0) {
     bsubboxlo[0] = domain->sublo[0] - cutghost[0];
     bsubboxlo[1] = domain->sublo[1] - cutghost[1];
@@ -185,6 +185,7 @@ void NBinStandard::setup_bins(int style)
   bigint bbin = ((bigint) mbinx) * ((bigint) mbiny) * ((bigint) mbinz) + 1;
   if (bbin > MAXSMALLINT) error->one(FLERR,"Too many neighbor bins");
   mbins = bbin;
+  GPTLstop("setup_bins");
 }
 
 /* ----------------------------------------------------------------------
@@ -193,6 +194,7 @@ void NBinStandard::setup_bins(int style)
 
 void NBinStandard::bin_atoms()
 {
+  GPTLstart("bin_atoms");
   int i,ibin;
 
   last_bin = update->ntimestep;
@@ -231,4 +233,5 @@ void NBinStandard::bin_atoms()
       binhead[ibin] = i;
     }
   }
+  GPTLstop("bin_atoms");
 }

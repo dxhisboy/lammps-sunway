@@ -60,7 +60,7 @@ class MyPage {
  public:
   int ndatum;      // total # of stored datums
   int nchunk;      // total # of stored chunks
-
+  int maxchunk;   // max # of datums in one requested chunk
   MyPage() {
     ndatum = nchunk = 0;
     pages = NULL;
@@ -174,6 +174,9 @@ class MyPage {
     index += n;
   }
 
+  void vwaste(){
+    vgot(maxchunk);
+  }
   // clear all pages, without freeing any memory
 
   void reset() {
@@ -201,7 +204,6 @@ class MyPage {
   int ipage;      // index of current page
   int index;      // current index on current page
 
-  int maxchunk;   // max # of datums in one requested chunk
   int pagesize;   // # of datums in one page, default = 1024
   int pagedelta;  // # of pages to allocate at once, default = 1
 

@@ -109,7 +109,6 @@ void Finish::end(int flag)
   if (flag == 4) hyperflag = timeflag = histoflag = neighflag = 1;
 
   // loop stats
-
   if (timer->has_loop()) {
 
     // overall loop time

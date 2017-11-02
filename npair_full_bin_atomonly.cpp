@@ -19,7 +19,7 @@
 #include "domain.h"
 #include "my_page.h"
 #include "error.h"
-
+#include "gptl.h"
 using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
@@ -36,7 +36,7 @@ void NPairFullBinAtomonly::build(NeighList *list)
   int i,j,k,n,itype,jtype,ibin;
   double xtmp,ytmp,ztmp,delx,dely,delz,rsq;
   int *neighptr;
-
+  GPTLstart("full_build_sunway");
   double **x = atom->x;
   int *type = atom->type;
   int *mask = atom->mask;
@@ -51,7 +51,7 @@ void NPairFullBinAtomonly::build(NeighList *list)
 
   int inum = 0;
   ipage->reset();
-
+  printf("%d\n", nstencil);
   for (i = 0; i < nlocal; i++) {
     n = 0;
     neighptr = ipage->vget();
@@ -65,7 +65,7 @@ void NPairFullBinAtomonly::build(NeighList *list)
     // skip i = j
 
     ibin = atom2bin[i];
-
+    
     for (k = 0; k < nstencil; k++) {
       for (j = binhead[ibin+stencil[k]]; j >= 0; j = bins[j]) {
         if (i == j) continue;
@@ -92,4 +92,5 @@ void NPairFullBinAtomonly::build(NeighList *list)
 
   list->inum = inum;
   list->gnum = 0;
+  GPTLstop("full_build_sunway");
 }

@@ -1673,7 +1673,6 @@ int Neighbor::choose_bin(NeighRequest *rq)
     if (!rq->ssa != !(mask & NB_SSA)) continue;
     if (!rq->kokkos_device != !(mask & NB_KOKKOS_DEVICE)) continue;
     if (!rq->kokkos_host != !(mask & NB_KOKKOS_HOST)) continue;
-
     return i+1;
   }
 
@@ -1872,6 +1871,7 @@ int Neighbor::choose_pair(NeighRequest *rq)
     if (!rq->respaouter != !(mask & NP_RESPA)) continue;
     if (!rq->bond != !(mask & NP_BOND)) continue;
     if (!rq->omp != !(mask & NP_OMP)) continue;
+    if (!rq->sunway != !(mask & NP_SUNWAY)) continue;
     if (!rq->intel != !(mask & NP_INTEL)) continue;
     if (!rq->kokkos_device != !(mask & NP_KOKKOS_DEVICE)) continue;
     if (!rq->kokkos_host != !(mask & NP_KOKKOS_HOST)) continue;

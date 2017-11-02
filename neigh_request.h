@@ -68,6 +68,7 @@ class NeighRequest : protected Pointers {
   int bond;              // 1 if store bond neighbors instead of atom neighs
   int omp;               // set by USER-OMP package
   int intel;             // set by USER-INTEL package
+  int sunway;
   int kokkos_host;       // set by KOKKOS package
   int kokkos_device;
   int ssa;               // set by USER-DPD package, for Shardlow lists

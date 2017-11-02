@@ -63,6 +63,7 @@ NeighRequest::NeighRequest(LAMMPS *lmp) : Pointers(lmp)
   bond = 0;
   omp = 0;
   intel = 0;
+  sunway = 0;
   kokkos_host = kokkos_device = 0;
   ssa = 0;
   cut = 0;

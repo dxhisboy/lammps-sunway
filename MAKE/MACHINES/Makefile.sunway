@@ -11,21 +11,21 @@ SHELL = /bin/sh
 # specify flags and libraries needed for your compiler
 
 CC =		mpiCC
-CCFLAGS =	-O3 -OPT:IEEE_arithmetic=3 # -Wunused
+CCFLAGS =	-O3 -OPT:IEEE_arithmetic=3 -DSUNWAY # -Wunused
 SHFLAGS =	-fPIC
 DEP = gcc
 DEPFLAGS =	-M
 
 LINK =		mpiCC
-LINKFLAGS =	-hybrid -O3
-LIB = 
+LINKFLAGS =	-hybrid -O3 
+LIB =           ../libgptl.a
 SIZE =		size
 
 SLAVE_CC =	sw5cc -slave
-SLAVE_CFLAGS = -O2 -msimd -DCPE
+SLAVE_CFLAGS = -O3 -msimd -DCPE
 
 HOST_CC =	mpicc -host
-HOST_CFLAGS = -O2 -msimd -DMPE
+HOST_CFLAGS = -O3 -msimd -DMPE
 
 ARCHIVE =	ar
 ARFLAGS =	-rc

@@ -20,6 +20,7 @@
 #include "domain.h"
 #include "my_page.h"
 #include "error.h"
+#include "gptl.h"
 
 using namespace LAMMPS_NS;
 
@@ -38,7 +39,7 @@ void NPairHalffullNewtoff::build(NeighList *list)
 {
   int i,j,ii,jj,n,jnum,joriginal;
   int *neighptr,*jlist;
-
+  GPTLstart("half_build");
   int *ilist = list->ilist;
   int *numneigh = list->numneigh;
   int **firstneigh = list->firstneigh;
@@ -79,4 +80,5 @@ void NPairHalffullNewtoff::build(NeighList *list)
   }
 
   list->inum = inum;
+  GPTLstop("half_build");
 }

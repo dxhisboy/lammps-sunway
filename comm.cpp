@@ -81,6 +81,9 @@ Comm::Comm(LAMMPS *lmp) : Pointers(lmp)
   // as many threads as there are (virtual) CPU cores by default.
 
   nthreads = 1;
+#ifdef SUNWAY
+  nthreads = 64;
+#endif
 #ifdef _OPENMP
   if (lmp->kokkos) {
     nthreads = lmp->kokkos->num_threads * lmp->kokkos->numa;

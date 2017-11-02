@@ -17,7 +17,7 @@
 #include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
-//#include "gptl.h"
+#include "gptl.h"
 #if defined(LAMMPS_TRAP_FPE) && defined(_GNU_SOURCE)
 #include <fenv.h>
 #endif
@@ -31,7 +31,7 @@ using namespace LAMMPS_NS;
 int main(int argc, char **argv)
 {
   MPI_Init(&argc,&argv);
-  
+  GPTLinitialize();
 // enable trapping selected floating point exceptions.
 // this uses GNU extensions and is only tested on Linux
 // therefore we make it depend on -D_GNU_SOURCE, too.
@@ -60,6 +60,7 @@ int main(int argc, char **argv)
   lammps->input->file();
   delete lammps;
 #endif
+  GPTLpr_file("LammpsTime");
   MPI_Barrier(MPI_COMM_WORLD);
   MPI_Finalize();
 }

@@ -33,7 +33,7 @@
 #include "memory.h"
 #include "error.h"
 #include "sunway.h"
-
+#include "gptl.h"
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
@@ -79,10 +79,12 @@ void PairLJCutSunway::compute(int eflag, int vflag)
 
   compute_param_t pm;
 
+  GPTLstart("compute");
+  GPTLstart("ev_setup");
   evdwl = 0.0;
   if (eflag || vflag) ev_setup(eflag,vflag);
   else evflag = vflag_fdotr = 0;
-
+  GPTLstop("ev_setup");
   pm.eflag         = eflag;
   pm.vflag         = vflag;
   pm.evflag        = evflag;
@@ -120,12 +122,15 @@ void PairLJCutSunway::compute(int eflag, int vflag)
   pm.virial[3]     = virial[3];
   pm.virial[4]     = virial[4];
   pm.virial[5]     = virial[5];
+  pm.rank          = comm->me;
   if (eflag_atom)
     pm.eatom = eatom;
   if (vflag_atom)
     pm.vatom = static_cast<double(*)[6]>((void*)vatom[0]);
   //puts("1");
+  GPTLstart("slave_compute");
   pair_lj_cut_sunway_compute(&pm);
+  GPTLstop("slave_compute");
   //puts("2");
   //pair_lj_cut_sunway_compute(&pm);
   //printf("%f %f %f\n", pm.eng_vdwl, pm.eng_coul, pm.virial[0]);
@@ -138,67 +143,10 @@ void PairLJCutSunway::compute(int eflag, int vflag)
   virial[4] = pm.virial[4];
   virial[5] = pm.virial[5];
   
-  // double **x = atom->x;
-  // double **f = atom->f;
-  // int *type = atom->type;
-  // int nlocal = atom->nlocal;
-  // double *special_lj = force->special_lj;
-  // int newton_pair = force->newton_pair;
-
-  // inum = listfull->inum;
-  // ilist = listfull->ilist;
-  // numneigh = listfull->numneigh;
-  // firstneigh = listfull->firstneigh;
-
-  // // loop over neighbors of my atoms
-
-  // for (ii = 0; ii < inum; ii++) {
-  //   i = ilist[ii];
-  //   xtmp = x[i][0];
-  //   ytmp = x[i][1];
-  //   ztmp = x[i][2];
-  //   itype = type[i];
-  //   jlist = firstneigh[i];
-  //   jnum = numneigh[i];
-
-  //   for (jj = 0; jj < jnum; jj++) {
-  //     j = jlist[jj];
-  //     factor_lj = special_lj[sbmask(j)];
-  //     j &= NEIGHMASK;
-
-  //     delx = xtmp - x[j][0];
-  //     dely = ytmp - x[j][1];
-  //     delz = ztmp - x[j][2];
-  //     rsq = delx*delx + dely*dely + delz*delz;
-  //     jtype = type[j];
-
-  //     if (rsq < cutsq[itype][jtype]) {
-  //       r2inv = 1.0/rsq;
-  //       r6inv = r2inv*r2inv*r2inv;
-  //       forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
-  //       fpair = factor_lj*forcelj*r2inv;
-
-  //       f[i][0] += delx*fpair;
-  //       f[i][1] += dely*fpair;
-  //       f[i][2] += delz*fpair;
-  //       //if (newton_pair || j < nlocal) {
-  //       //  f[j][0] -= delx*fpair;
-  //       //  f[j][1] -= dely*fpair;
-  //       //  f[j][2] -= delz*fpair;
-  //       //}
-
-  //       if (eflag) {
-  //         evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]) -
-  //           offset[itype][jtype];
-  //         evdwl *= factor_lj;
-  //       }
-
-  //       if (evflag) ev_tally_full(i,evdwl,0.0,fpair,delx,dely,delz);
-  //     }
-  //   }
-  // }
-
+  GPTLstart("fdotr");
   if (vflag_fdotr) virial_fdotr_compute();
+  GPTLstop("fdotr");
+  GPTLstop("compute");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -574,14 +522,20 @@ void PairLJCutSunway::init_style()
       neighbor->requests[irequest]->respaouter = 1;
     }
 
-  } else irequest = neighbor->request(this,instance_me);
-
+  } else {
+    puts("in else");
+    irequest = neighbor->request(this,instance_me);
+    neighbor->requests[irequest]->id = 4;
+    neighbor->requests[irequest]->full = 1;
+    neighbor->requests[irequest]->half = 0;
+    //neighbor->requests[irequest]->sunway = 1;
+  }
   //require a full list
-  irequest = neighbor->request(this, instance_me);
-  neighbor->requests[irequest]->id = 4;
-  neighbor->requests[irequest]->full = 1;
-  neighbor->requests[irequest]->half = 0;
-
+  // irequest = neighbor->request(this, instance_me);
+  // neighbor->requests[irequest]->id = 4;
+  // neighbor->requests[irequest]->full = 1;
+  // neighbor->requests[irequest]->half = 0;
+  // neighbor->requests[irequest]->sunway = 1;
   // set rRESPA cutoffs
 
   if (strstr(update->integrate_style,"respa") &&
@@ -602,8 +556,6 @@ void PairLJCutSunway::init_list(int id, NeighList *ptr)
   else if (id == 2) listmiddle = ptr;
   else if (id == 3) listouter = ptr;
   else if (id == 4) listfull = ptr;
-  printf("init_list %d\n", id);
-
 }
 
 /* ----------------------------------------------------------------------

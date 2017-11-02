@@ -1,6 +1,7 @@
 #include "npair_copy.h"
 #include "npair_full_bin.h"
 #include "npair_full_bin_atomonly.h"
+#include "npair_full_bin_atomonly_sunway.h"
 #include "npair_full_bin_ghost.h"
 #include "npair_full_multi.h"
 #include "npair_full_nsq.h"
