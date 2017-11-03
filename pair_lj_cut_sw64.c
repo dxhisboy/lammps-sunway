@@ -8,6 +8,7 @@
 int r = 0;
 extern SLAVE_FUN(pair_lj_cut_sunway_compute_para)(compute_param_t *);
 extern SLAVE_FUN(pair_lj_cut_sunway_compute_a2s)(compute_param_t *);
+
 void pair_lj_cut_sunway_compute(compute_param_t *pm){
   if (athread_idle() == 0)
     athread_init();
@@ -20,7 +21,7 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
     lwpf_init(&conf);
   }
   atom_in_t *atom_in = malloc(sizeof(atom_in_t) * (pm->nlocal + pm->nghost + 32));
-  //printf("%d %d %d %d %d %d\n", pm->eflag_either, pm->vflag_either, pm->eflag_atom, pm->vflag_atom, pm->eflag_global, pm->vflag_global);
+  //printf("e:%d ee:%d ve:%d %d %d %d %d\n", pm->eflag_either, pm->vflag_either, pm->eflag_atom, pm->vflag_atom, pm->eflag_global, pm->vflag_global);
   pm->atom_in = ((long)atom_in | 255) + 1;
   athread_spawn(pair_lj_cut_sunway_compute_a2s, pm);
   athread_join();
@@ -37,11 +38,11 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
 #define LWPF_KERNELS _K(COMP) K(CACHE) K(IREAD) K(IWRITE) K(ALL) K(GST) K(JLOOP)
 #define LWPF_UNIT U(LJCUT)
 #include "lwpf.h"
-
+#include <dma.h>
 /* #define JPAGE_SIZE 64 */
 /* #define JLIST_SIZE 256 */
 /* #define IPAGE_SIZE 16 */
-void ev_tally_full(compute_param_t *pm, int i, double evdwl, double ecoul, double fpair,
+inline void ev_tally_full(compute_param_t *pm, int i, double evdwl, double ecoul, double fpair,
                    double delx, double dely, double delz,
                    double *eng_coul, double *eng_vdwl, double *virial,
                    double *eatom, double (*vatom)[6])
@@ -159,7 +160,7 @@ void pair_lj_cut_sunway_compute_a2s(compute_param_t *pm){
 }
 
 void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
-  lwpf_start(ALL);
+  //lwpf_start(ALL);
   pe_init();
   int i,j,ii,jj,inum,jnum,itype,jtype;
   double xtmp,ytmp,ztmp,delx,dely,delz,evdwl,fpair;
@@ -207,7 +208,14 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
   double ei[ILIST_PAGESIZE], vi[ILIST_PAGESIZE][6], v[6];
   int ti[ILIST_PAGESIZE], *fn[ILIST_PAGESIZE], nn[ILIST_PAGESIZE];
   int ipage_start;
-  lwpf_start(COMP);
+  volatile int cache_reply;
+  dma_desc cache_get_desc;
+  memset(&cache_get_desc, 0, sizeof(dma_desc));
+  dma_set_mode(&cache_get_desc, PE_MODE);
+  dma_set_size(&cache_get_desc, sizeof(atom_in_t) * JCACHE_LINESIZE);
+  dma_set_op(&cache_get_desc, DMA_GET);
+  dma_set_reply(&cache_get_desc, &cache_reply);
+  //lwpf_start(COMP);
   for (i = 0; i < JCACHE_LINECNT; i ++)
     jcache_tag[i] = -1;
   for (ipage_start = ILIST_PAGESIZE * _MYID; ipage_start < inum; ipage_start += ILIST_PAGESIZE * 64){
@@ -215,14 +223,14 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
     if (ipage_end > inum)
       ipage_end = inum;
     int ipage_size = ipage_end - ipage_start;
-    lwpf_start(IREAD);
+    //lwpf_start(IREAD);
     pe_get(x[ipage_start], xi, ipage_size * sizeof(double) * 3);
     pe_get(type + ipage_start, ti, ipage_size * sizeof(int));
     pe_get(firstneigh + ipage_start, fn, ipage_size * sizeof(int*));
     pe_get(numneigh + ipage_start, nn, ipage_size * sizeof(int));
 
     pe_syn();
-    lwpf_stop(IREAD);
+    //lwpf_stop(IREAD);
     for (ii = ipage_start; ii < ipage_end; ii ++) {
       i = ii;
       int ioff = i - ipage_start;
@@ -240,7 +248,7 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
           jpage_size = jnum - jpage_start;
         pe_get(jlist + jpage_start, jlist_buf, jpage_size * sizeof(int));
         pe_syn();
-        lwpf_start(JLOOP);
+        //lwpf_start(JLOOP);
         for (jj = 0; jj < jpage_size; jj++) {
           j = jlist_buf[jj];
           factor_lj = special_lj[sbmask(j)];
@@ -250,13 +258,15 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
 
           if (jcache_tag[line] != tag){
             int mem = j & ~JCACHE_MMASK;
-            lwpf_start(CACHE);
-            pe_get(l_pm.atom_in + mem, j_cache[line], sizeof(atom_in_t) * JCACHE_LINESIZE);
-            pe_syn();
+            //lwpf_start(CACHE);
+            cache_reply = 0;
+            dma(cache_get_desc, l_pm.atom_in + mem, j_cache[line]);
+            while (cache_reply != 1);
+            /* pe_get(l_pm.atom_in + mem, j_cache[line], sizeof(atom_in_t) * JCACHE_LINESIZE); */
+            /* pe_syn(); */
             jcache_tag[line] = tag;
-            lwpf_stop(CACHE);
+            //lwpf_stop(CACHE);
           }
-
           atom_in_t *jc = j_cache[line] + (j & JCACHE_MMASK);
           xj[0] = jc->x[0];
           xj[1] = jc->x[1];
@@ -277,48 +287,72 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
             fi[ioff][0] += delx*fpair;
             fi[ioff][1] += dely*fpair;
             fi[ioff][2] += delz*fpair;
+            if (l_pm.evflag) {
+              if (l_pm.eflag_either){
+                evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]) -
+                  offset[itype][jtype];
+                evdwl *= factor_lj;
+              }
 
-            if (l_pm.eflag) {
-              evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]) -
-                offset[itype][jtype];
-              evdwl *= factor_lj;
+              if (l_pm.eflag_either) {
+                if (l_pm.eflag_global) {
+                  eng_vdwl[0] += 0.5*evdwl;
+                  //eng_coul[0] += 0.5*0;
+                }
+                if (l_pm.eflag_atom) ei[i] += 0.5 * evdwl;
+              }
+
+              if (l_pm.vflag_either) {
+                v[0] = 0.5*delx*delx*fpair;
+                v[1] = 0.5*dely*dely*fpair;
+                v[2] = 0.5*delz*delz*fpair;
+                v[3] = 0.5*delx*dely*fpair;
+                v[4] = 0.5*delx*delz*fpair;
+                v[5] = 0.5*dely*delz*fpair;
+
+                if (l_pm.vflag_global) {
+                  virial[0] += v[0];
+                  virial[1] += v[1];
+                  virial[2] += v[2];
+                  virial[3] += v[3];
+                  virial[4] += v[4];
+                  virial[5] += v[5];
+                }
+
+                if (l_pm.vflag_atom) {
+                  vi[i][0] += v[0];
+                  vi[i][1] += v[1];
+                  vi[i][2] += v[2];
+                  vi[i][3] += v[3];
+                  vi[i][4] += v[4];
+                  vi[i][5] += v[5];
+                }
+              }
+
             }
-            if (l_pm.evflag) ev_tally_full(&l_pm, ioff, evdwl,0.0,fpair,delx,dely,delz, eng_coul, eng_vdwl, virial, ei, vi);
           }
         }
-        lwpf_stop(JLOOP);
+        //lwpf_stop(JLOOP);
       }
     }
-    lwpf_start(IWRITE);
+    //lwpf_start(IWRITE);
     pe_put(f[ipage_start], fi[0], sizeof(double) * 3 * ipage_size);
     if (l_pm.eflag_either && l_pm.eflag_atom)
       pe_put(l_pm.eatom + ipage_start, ei, sizeof(double) * ipage_size);
     if (l_pm.vflag_either && l_pm.vflag_atom)
       pe_put(l_pm.vatom[ipage_start], vi[0], sizeof(double) * 6 * ipage_size);
     pe_syn();
-    lwpf_stop(IWRITE);
+    //lwpf_stop(IWRITE);
   }
-  lwpf_stop(COMP);
+  //lwpf_stop(COMP);
   reg_reduce_inplace_doublev4(eng_virial, 2);
-  lwpf_start(GST);
+  //lwpf_start(GST);
   if (_MYID == 0){
     pe_put(&(pm->eng_vdwl), eng_vdwl, sizeof(double) * 8);
     pe_syn();
-    /* if (l_pm.eflag_either && l_pm.eflag_global) { */
-    /*   pm->eng_vdwl = *eng_vdwl; */
-    /*   pm->eng_coul = *eng_coul; */
-    /* } */
-    /* if (l_pm.vflag_either && l_pm.vflag_global) { */
-    /*   pm->virial[0] = virial[0]; */
-    /*   pm->virial[1] = virial[1]; */
-    /*   pm->virial[2] = virial[2]; */
-    /*   pm->virial[3] = virial[3]; */
-    /*   pm->virial[4] = virial[4]; */
-    /*   pm->virial[5] = virial[5]; */
-    /* } */
   }
-  lwpf_stop(GST);
-  lwpf_stop(ALL);
+  //lwpf_stop(GST);
+  //lwpf_stop(ALL);
 }
 
 #endif
