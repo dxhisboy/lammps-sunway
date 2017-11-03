@@ -130,10 +130,14 @@ shlib:	$(OBJ) $(EXTRA_LINK_DEPENDS)
 #	$(HOST_CC) $(HOST_CFLAGS) -c $< -o $@
 # Individual dependencies
 
+#depend: .depend
+ifeq ($(SKIPDEP), 1)
+depend: 
+	@echo "Skipping dep check"
+else
 depend: fastdep.exe $(SRC) $(C_SRC)
-	echo $(C_SRC)
 	@./fastdep.exe $(EXTRA_INC) -- $^ > .depend || exit 1
-
+endif
 fastdep.exe: ../DEPEND/fastdep.c
 	cc -O -o $@ $<
 

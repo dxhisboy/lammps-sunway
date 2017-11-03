@@ -1,4 +1,5 @@
 #include "sunway.h"
+#include "gptl.h"
 #include <stdlib.h>
 #include <simd.h>
 
@@ -22,11 +23,15 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
   }
   atom_in_t *atom_in = malloc(sizeof(atom_in_t) * (pm->nlocal + pm->nghost + 32));
   //printf("e:%d ee:%d ve:%d %d %d %d %d\n", pm->eflag_either, pm->vflag_either, pm->eflag_atom, pm->vflag_atom, pm->eflag_global, pm->vflag_global);
-  pm->atom_in = ((long)atom_in | 255) + 1;
+  pm->atom_in = (void*)((long)atom_in | 255) + 1;
+  GPTLstart("a2s");
   athread_spawn(pair_lj_cut_sunway_compute_a2s, pm);
   athread_join();
+  GPTLstop("a2s");
+  GPTLstart("comp");
   athread_spawn(pair_lj_cut_sunway_compute_para, pm);
   athread_join();
+  GPTLstop("comp");
   if (r == 10 && pm->rank == 0){
     lwpf_finish(stdout);
   }
@@ -39,6 +44,7 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
 #define LWPF_UNIT U(LJCUT)
 #include "lwpf.h"
 #include <dma.h>
+
 /* #define JPAGE_SIZE 64 */
 /* #define JLIST_SIZE 256 */
 /* #define IPAGE_SIZE 16 */
@@ -112,7 +118,6 @@ static inline void reg_reduce_inplace_doublev4(doublev4 *arr, int len){
         for (j = 0; j < len; j ++){
           asm("getr %0\n" : "=r"(tmp));
           arr[j] += tmp;
-          //      "vaddd %0, %1, %0" : "=r"(arr[j]), "=r"(tmp));
         }
       }
     }
@@ -181,6 +186,7 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
 
   compute_param_t l_pm;
   pe_get(pm, &l_pm, sizeof(compute_param_t));
+  double INF = 1.0 / 0.0;
   pe_syn();
   int ntp1 = l_pm.ntypes + 1;
   double cutsq[ntp1][ntp1], lj1[ntp1][ntp1], lj2[ntp1][ntp1], lj3[ntp1][ntp1], lj4[ntp1][ntp1], offset[ntp1][ntp1];
@@ -199,7 +205,7 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
   numneigh = pm->numneigh;
   firstneigh = pm->firstneigh;
   int jlist_buf[JLIST_PAGESIZE];
-
+  atom_in_t jlist_atom[JLIST_PAGESIZE];
   atom_in_t j_cache[JCACHE_LINECNT][JCACHE_LINESIZE];
   int jcache_tag[JCACHE_LINECNT];
   double *xjc, xj[3];
@@ -209,8 +215,8 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
   int ti[ILIST_PAGESIZE], *fn[ILIST_PAGESIZE], nn[ILIST_PAGESIZE];
   int ipage_start;
   volatile int cache_reply;
-  dma_desc cache_get_desc;
-  memset(&cache_get_desc, 0, sizeof(dma_desc));
+  dma_desc cache_get_desc = 0;
+  //memset(&cache_get_desc, 0, sizeof(dma_desc));
   dma_set_mode(&cache_get_desc, PE_MODE);
   dma_set_size(&cache_get_desc, sizeof(atom_in_t) * JCACHE_LINESIZE);
   dma_set_op(&cache_get_desc, DMA_GET);
@@ -248,7 +254,8 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
           jpage_size = jnum - jpage_start;
         pe_get(jlist + jpage_start, jlist_buf, jpage_size * sizeof(int));
         pe_syn();
-        //lwpf_start(JLOOP);
+        
+        lwpf_start(CACHE);
         for (jj = 0; jj < jpage_size; jj++) {
           j = jlist_buf[jj];
           factor_lj = special_lj[sbmask(j)];
@@ -258,24 +265,26 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
 
           if (jcache_tag[line] != tag){
             int mem = j & ~JCACHE_MMASK;
-            //lwpf_start(CACHE);
             cache_reply = 0;
             dma(cache_get_desc, l_pm.atom_in + mem, j_cache[line]);
             while (cache_reply != 1);
             /* pe_get(l_pm.atom_in + mem, j_cache[line], sizeof(atom_in_t) * JCACHE_LINESIZE); */
             /* pe_syn(); */
             jcache_tag[line] = tag;
-            //lwpf_stop(CACHE);
           }
-          atom_in_t *jc = j_cache[line] + (j & JCACHE_MMASK);
-          xj[0] = jc->x[0];
-          xj[1] = jc->x[1];
-          xj[2] = jc->x[2];
-          jtype = jc->type;
+          jlist_atom[jj] = j_cache[line][j & JCACHE_MMASK];
+        }
+        lwpf_stop(CACHE);
+        for (jj = jpage_size; jj < ((jpage_size + 3) & (~3)); jj ++){
+          jlist_atom[jj].x[0] = INF;
+        }
+        lwpf_start(JLOOP);
+        for (jj = 0; jj < jpage_size; jj ++){
+          jtype = jlist_atom[jj].type;
 
-          delx = xi[ioff][0] - xj[0];
-          dely = xi[ioff][1] - xj[1];
-          delz = xi[ioff][2] - xj[2];
+          delx = xi[ioff][0] - jlist_atom[jj].x[0];
+          dely = xi[ioff][1] - jlist_atom[jj].x[1];
+          delz = xi[ioff][2] - jlist_atom[jj].x[2];
           rsq = delx*delx + dely*dely + delz*delz;
 
           if (rsq < cutsq[itype][jtype]) {
@@ -288,16 +297,13 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
             fi[ioff][1] += dely*fpair;
             fi[ioff][2] += delz*fpair;
             if (l_pm.evflag) {
-              if (l_pm.eflag_either){
+              if (l_pm.eflag_either) {
                 evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]) -
                   offset[itype][jtype];
                 evdwl *= factor_lj;
-              }
 
-              if (l_pm.eflag_either) {
                 if (l_pm.eflag_global) {
                   eng_vdwl[0] += 0.5*evdwl;
-                  //eng_coul[0] += 0.5*0;
                 }
                 if (l_pm.eflag_atom) ei[i] += 0.5 * evdwl;
               }
@@ -332,7 +338,7 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
             }
           }
         }
-        //lwpf_stop(JLOOP);
+        lwpf_stop(JLOOP);
       }
     }
     //lwpf_start(IWRITE);
