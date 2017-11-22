@@ -17,6 +17,7 @@
 #include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include "gptl.h"
 #if defined(LAMMPS_TRAP_FPE) && defined(_GNU_SOURCE)
 #include <fenv.h>
@@ -27,11 +28,14 @@ using namespace LAMMPS_NS;
 /* ----------------------------------------------------------------------
    main program to drive LAMMPS
 ------------------------------------------------------------------------- */
-
+extern "C"{
+  extern void spc_on_sig(int sig);
+}
 int main(int argc, char **argv)
 {
   MPI_Init(&argc,&argv);
   GPTLinitialize();
+  signal(SIGUSR1, spc_on_sig);
 // enable trapping selected floating point exceptions.
 // this uses GNU extensions and is only tested on Linux
 // therefore we make it depend on -D_GNU_SOURCE, too.

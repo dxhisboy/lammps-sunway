@@ -19,7 +19,7 @@ extern "C"{
 #endif
   typedef struct atom_in_t{
     double x[3];
-    int type, pad;
+    int type, sbj;
   } atom_in_t;
   typedef struct compute_param_t{
     int *ilist, *numneigh, **firstneigh;
