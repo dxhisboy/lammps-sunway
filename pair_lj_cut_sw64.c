@@ -45,7 +45,7 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
 }
 #endif
 #ifdef CPE
-#define LWPF_KERNELS _K(COMP) K(CACHE) K(IREAD) K(IWRITE) K(ALL) K(GST) K(VECPACK) K(JLOOP)
+#define LWPF_KERNELS _K(COMP) K(CACHE) K(IREAD) K(IWRITE) K(ALL) K(GST) K(VECPACK) K(JLOOP) K(VECCOMP)
 #define LWPF_UNIT U(LJCUT)
 #include "lwpf.h"
 #include <dma.h>
@@ -389,7 +389,7 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
 
 __thread_local volatile int cache_reply;            
 void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
-  lwpf_start(ALL);
+  //lwpf_start(ALL);
   pe_init();
   doublev4 v4_1 = 1.0;
   doublev4 v4_0 = 0;
@@ -523,6 +523,7 @@ void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
           int jjj;
           int flj_msk = 0;
           doublev4 xjv[4];
+          //lwpf_start(CACHE);
           for (jjj = 0; jjj < 4; jjj ++){
             j = jlist_buf[jj + jjj];
             sbj[jjj] = sbmask(j);
@@ -539,26 +540,36 @@ void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
             }
             simd_load(xjv[jjj], j_cache[line] + (j & JCACHE_MMASK));
           }
+          //lwpf_stop(CACHE);
+          //lwpf_start(VECPACK);
+          {
+            transpose4x4(xjv[0], xjv[1], xjv[2], xjv[3],
+                         jlist_x_v4[0], jlist_x_v4[1], jlist_x_v4[2],
+                         padding_v4_0);
 
-          transpose4x4(xjv[0], xjv[1], xjv[2], xjv[3],
-                       jlist_x_v4[0], jlist_x_v4[1], jlist_x_v4[2],
-                       padding_v4_0);
+            /* int t0, t1, t2, t3; */
+            /* asm("vextw %4, 0, %0\n" */
+            /*     "vextw %4, 2, %1\n" */
+            /*     "vextw %4, 4, %2\n" */
+            /*     "vextw %4, 6, %3\n" */
+            /*     : "=r"(t0), "=r"(t1), "=r"(t2), "=r"(t3) : "r"(padding_v4_0)); */
+            int *tsb = &padding_v4_0;
+            int t0 = tsb[0];
+            int t1 = tsb[2];
+            int t2 = tsb[4];
+            int t3 = tsb[6];
 
-          int *tsb = &padding_v4_0;
-          int t0 = tsb[0];
-          int t1 = tsb[2];
-          int t2 = tsb[4];
-          int t3 = tsb[6];
-
-          int it = itype;
-          transpose4x4(lj_v4[it][t0], lj_v4[it][t1], lj_v4[it][t2], lj_v4[it][t3],
-                       jlist_lj_v4[0], jlist_lj_v4[1],
-                       jlist_lj_v4[2], jlist_lj_v4[3]);
-          transpose4x4_2x4(csqoff_v4[it][t0], csqoff_v4[it][t1],
-                           csqoff_v4[it][t2], csqoff_v4[it][t3],
-                           jlist_cutsq_v4, jlist_offset_v4);
-
-          jlist_flj_v4 = simd_vshff(slj_v4, slj_v4, flj_msk);
+            int it = itype;
+            transpose4x4(lj_v4[it][t0], lj_v4[it][t1], lj_v4[it][t2], lj_v4[it][t3],
+                         jlist_lj_v4[0], jlist_lj_v4[1],
+                         jlist_lj_v4[2], jlist_lj_v4[3]);
+            transpose4x4_2x4(csqoff_v4[it][t0], csqoff_v4[it][t1],
+                             csqoff_v4[it][t2], csqoff_v4[it][t3],
+                             jlist_cutsq_v4, jlist_offset_v4);
+            jlist_flj_v4 = simd_vshff(slj_v4, slj_v4, flj_msk);
+          }
+          //lwpf_stop(VECPACK);
+          //lwpf_start(VECCOMP);
           doublev4 delx_v4 = xi_v4[0] - jlist_x_v4[0];
           doublev4 dely_v4 = xi_v4[1] - jlist_x_v4[1];
           doublev4 delz_v4 = xi_v4[2] - jlist_x_v4[2];
@@ -611,6 +622,7 @@ void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
               }
             }
           }
+          //lwpf_stop(VECCOMP);
         }
       }
 
@@ -734,20 +746,13 @@ void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
   virial[3] += virial_v4[3];
   virial[4] += virial_v4[4];
   virial[5] += virial_v4[5];
-  /* for (i = 0; i < 64; i ++){ */
-  /*   if (_MYID == i){ */
-  /*     simd_print_doublev4(eng_vdwl_v4); */
-  /*     printf("%d %f\n", i, *eng_vdwl); */
-  /*   } */
-  /*   athread_syn(ARRAY_SCOPE, 0xffff); */
-  /* } */
+
   reg_reduce_inplace_doublev4(eng_virial, 2);
-  //lwpf_start(GST);
   if (_MYID == 0){
     pe_put(&(pm->eng_vdwl), eng_vdwl, sizeof(double) * 8);
     pe_syn();
   }
-  //lwpf_stop(GST);
+
   //lwpf_stop(ALL);
 }
 

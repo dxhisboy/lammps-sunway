@@ -51,7 +51,7 @@ void NPairFullBinAtomonly::build(NeighList *list)
 
   int inum = 0;
   ipage->reset();
-  printf("%d\n", nstencil);
+
   for (i = 0; i < nlocal; i++) {
     n = 0;
     neighptr = ipage->vget();

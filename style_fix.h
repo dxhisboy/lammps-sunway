@@ -35,6 +35,7 @@
 #include "fix_nve_limit.h"
 #include "fix_nve_noforce.h"
 #include "fix_nve_sphere.h"
+#include "fix_nve_sunway.h"
 #include "fix_nvt.h"
 #include "fix_nvt_sllod.h"
 #include "fix_nvt_sphere.h"

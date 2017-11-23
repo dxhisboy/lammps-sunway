@@ -528,7 +528,7 @@ void PairLJCutSunway::init_style()
     neighbor->requests[irequest]->id = 4;
     neighbor->requests[irequest]->full = 1;
     neighbor->requests[irequest]->half = 0;
-    //neighbor->requests[irequest]->sunway = 1;
+    neighbor->requests[irequest]->sunway = 1;
   }
   //require a full list
   // irequest = neighbor->request(this, instance_me);

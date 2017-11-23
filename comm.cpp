@@ -82,7 +82,7 @@ Comm::Comm(LAMMPS *lmp) : Pointers(lmp)
 
   nthreads = 1;
 #ifdef SUNWAY
-  nthreads = 64;
+  nthreads = 1;
 #endif
 #ifdef _OPENMP
   if (lmp->kokkos) {
