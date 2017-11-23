@@ -63,6 +63,15 @@ extern "C"{
     int nlocal, nghost, ntotal, ntypes, mbins;
     int maxchunk;
   } neigh_param_t;
+  typedef struct fix_nve_param_t{
+
+    double **x, **v, **f;
+    double *rmass, *mass;
+    double dtv, dtf;
+    int *type, *mask;
+    int nlocal, groupbit;
+  }fix_nve_param_t;
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,5 +1,5 @@
 #include "sunway.h"
-#define BNDL_SIZE 8
+#define BNDL_SIZE 16
 #ifdef MPE
 extern SLAVE_FUN(npair_full_bin_atomonly_sunway_build_packed_para)(neigh_param_t *pm);
 
@@ -46,10 +46,6 @@ void npair_full_bin_atomonly_sunway_build_packed(neigh_param_t *pm){
 }
 #endif
 #ifdef CPE
-#define JPAGE_SIZE 64
-#define MAXT2 16
-#define NEIGH_BUFSIZE 2048
-#define MAX_STENCIL 512
 #define BIN_PAGESIZE 64
 #define NEIGH_PAGESIZE 128
 void npair_full_bin_atomonly_sunway_build_packed_para(neigh_param_t *pm){

@@ -1,6 +1,6 @@
 # 3d Lennard-Jones melt
 
-variable        N index on     # Newton Setting
+variable        N index off     # Newton Setting
 variable	w index 10	# Warmup Timesteps
 variable	t index 7900	# Main Run Timesteps
 variable	m index 1	# Main Run Timestep Multiplier

@@ -6,7 +6,7 @@
 #ifdef MPE
 #define LWPF_UNITS U(LJCUT)
 #include "lwpf.h"
-int r = 0;
+//int r = 0;
 
 extern SLAVE_FUN(pair_lj_cut_sunway_compute_para)(compute_param_t *);
 extern SLAVE_FUN(pair_lj_cut_sunway_compute_para_vec)(compute_param_t *);
@@ -15,14 +15,14 @@ extern SLAVE_FUN(pair_lj_cut_sunway_compute_a2s)(compute_param_t *);
 void pair_lj_cut_sunway_compute(compute_param_t *pm){
   if (athread_idle() == 0)
     athread_init();
-  if (r == 0){
-    perf_config_t conf;
-    conf.pcr0 = PC0_CYC_CHNL_BLOCK;
-    conf.pcr1 = PC1_CYCLE;
-    conf.pcr2 = PC2_CNT_DMA_REQ;
-    conf.pcrc = PCRC_ALL_PC;
-    lwpf_init(&conf);
-  }
+  /* if (r == 0){ */
+  /*   perf_config_t conf; */
+  /*   conf.pcr0 = PC0_CYC_CHNL_BLOCK; */
+  /*   conf.pcr1 = PC1_CYCLE; */
+  /*   conf.pcr2 = PC2_CNT_DMA_REQ; */
+  /*   conf.pcrc = PCRC_ALL_PC; */
+  /*   lwpf_init(&conf); */
+  /* } */
   atom_in_t *atom_in = malloc(sizeof(atom_in_t) * (pm->nlocal + pm->nghost + 32));
   //printf("e:%d ee:%d ve:%d %d %d %d %d\n", pm->eflag_either, pm->vflag_either, pm->eflag_atom, pm->vflag_atom, pm->eflag_global, pm->vflag_global);
   pm->atom_in = (void*)((long)atom_in | 255) + 1;
@@ -36,10 +36,10 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
   /* printf("%e %e %e\n", pm->eng_coul, pm->eng_vdwl, pm->virial[0]); */
   /* printf("%e %e\n", pm->x[0][0], pm->f[0][0]); */
   GPTLstop("comp");
-  if (r == 10 && pm->rank == 0){
-    lwpf_finish(stdout);
-  }
-  r ++;
+  /* if (r == 10 && pm->rank == 0){ */
+  /*   lwpf_finish(stdout); */
+  /* } */
+  //r ++;
   free(atom_in);
   //exit(1);
 }
