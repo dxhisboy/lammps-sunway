@@ -71,6 +71,7 @@
 #include "pair_tersoff.h"
 #include "pair_tersoff_mod.h"
 #include "pair_tersoff_mod_c.h"
+#include "pair_tersoff_sunway.h"
 #include "pair_tersoff_zbl.h"
 #include "pair_tip4p_cut.h"
 #include "pair_tip4p_long.h"

@@ -6,14 +6,14 @@ SHELL = /bin/sh
 # compiler/linker settings
 # specify flags and libraries needed for your compiler
 
-CC =		mpiicpc 
-OPTFLAGS =      -xHost -O2 -fp-model fast=2 -no-prec-div -qoverride-limits
+CC =		mpiicxx
+OPTFLAGS =      -O2 -fp-model fast=2 -no-prec-div -qoverride-limits
 CCFLAGS =	-qopenmp -DLAMMPS_MEMALIGN=64 -qno-offload \
                 -fno-alias -ansi-alias -restrict $(OPTFLAGS)
 SHFLAGS =	-fPIC
 DEPFLAGS =	-M
 
-LINK =		mpiicpc
+LINK =		mpiicxx
 LINKFLAGS =	-g -qopenmp $(OPTFLAGS)
 LIB =           -ltbbmalloc
 SIZE =		size
