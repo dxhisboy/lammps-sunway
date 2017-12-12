@@ -38,7 +38,6 @@ void fix_nve_final_integrate_sunway_compute_para(fix_nve_param_t *pm){
   pe_get(pm, &local_pm, sizeof(fix_nve_param_t));
   pe_syn();
 
-//printf("fix_nve\n");
   double x[BLK_SIZE * 3], v[BLK_SIZE * 3], f[BLK_SIZE * 3];
   double rmass[BLK_SIZE], mass[Cach_Num][Cach_Size];
   int mask[BLK_SIZE], type[BLK_SIZE], mass_id[Cach_Num];
@@ -54,11 +53,9 @@ void fix_nve_final_integrate_sunway_compute_para(fix_nve_param_t *pm){
   double dtf = local_pm.dtf;
 
 
-  int step_size = nlocal / 64;
+  int step_size = (nlocal + 63) / 64;
   if(step_size > BLK_SIZE)
     step_size = BLK_SIZE;
-
-
 
   if(local_pm.rmass)
   {
@@ -66,7 +63,8 @@ void fix_nve_final_integrate_sunway_compute_para(fix_nve_param_t *pm){
     {
       if(step_size + ii > nlocal)
         step_size = nlocal - ii;
-
+      if (step_size <= 0)
+        continue;
       pe_get( local_pm.v[ii], v, sizeof(double) * step_size * 3);
       pe_syn();
       pe_get( local_pm.f[ii], f, sizeof(double) * step_size * 3);
@@ -99,7 +97,8 @@ void fix_nve_final_integrate_sunway_compute_para(fix_nve_param_t *pm){
     {
       if(step_size + ii > nlocal)
         step_size = nlocal - ii;
-
+      if (step_size <= 0)
+        continue;
 
       pe_get( local_pm.v[ii], v, sizeof(double) * step_size * 3);
       pe_syn();
@@ -171,7 +170,7 @@ void fix_nve_initial_integrate_sunway_compute_para(fix_nve_param_t *pm){
   double dtf = local_pm.dtf;
 
 
-  int step_size = nlocal / 64;
+  int step_size = (nlocal + 63) / 64;
   if(step_size > BLK_SIZE)
     step_size = BLK_SIZE;
 
@@ -183,7 +182,8 @@ void fix_nve_initial_integrate_sunway_compute_para(fix_nve_param_t *pm){
     {
       if(step_size + ii > nlocal)
         step_size = nlocal - ii;
-
+      if (step_size <= 0)
+        continue;
       pe_get(local_pm.v[ii], v, sizeof(double) * step_size * 3);
       pe_syn();
       pe_get(local_pm.f[ii], f, sizeof(double) * step_size * 3);
@@ -224,7 +224,8 @@ void fix_nve_initial_integrate_sunway_compute_para(fix_nve_param_t *pm){
     {
       if(step_size + ii > nlocal)
         step_size = nlocal - ii;
-
+      if (step_size <= 0)
+        continue;
       pe_get( local_pm.v[ii], v, sizeof(double) * step_size * 3);
       pe_syn();
       pe_get( local_pm.f[ii], f, sizeof(double) * step_size * 3);

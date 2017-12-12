@@ -29,6 +29,7 @@
 #include "memory.h"
 #include "error.h"
 #include "sunway.h"
+#include "pair_tersoff_sw64.h"
 #include "gptl.h"
 
 #include "math_const.h"
@@ -116,7 +117,8 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   double rsq,rsq1,rsq2;
   double delr1[3],delr2[3],fi[3],fj[3],fk[3];
   double zeta_ij,zeta_ji,prefactor_ij, prefactor_ji;
-  int *ilist,*jlist,*klist,*numneigh,**firstneigh, *neighshort;
+  int *ilist,*jlist,*klist,*numneigh,**firstneigh;
+  short_neigh_t *jlist_short, *klist_short, *jshort, *kshort, *neighshort;;
   double dij[3], dji[3], djk[3], dik[3], r2ij, r2jk, r2ik;
   evdwl = 0.0;
   if (eflag || vflag) ev_setup(eflag,vflag);
@@ -124,7 +126,6 @@ void PairTersoffSunway::compute(int eflag, int vflag){
 
   double **x = atom->x;
   double **f = atom->f;
-  tagint *tag = atom->tag;
   int *type = atom->type;
   int nlocal = atom->nlocal;
   int newton_pair = force->newton_pair;
@@ -136,20 +137,99 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   ilist = list->ilist;
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
-  int *neighoff;
+  int neightotal;
   int *firstshort;
-  memory->create(neighoff, allnum + 1, "pair:neighoffset");
-  memory->create(firstshort, allnum + 1, "pair:numshort");
   
-  neighoff[0] = 0;
-  for (ii = 1; ii <= allnum; ii ++){
-    neighoff[ii] = neighoff[ii - 1] + numneigh[ii - 1];
+  neightotal = 0;
+  for (ii = 0; ii < allnum; ii ++){
+    neightotal += numneigh[ii];
   }
+  short_neigh_t *shortlist;
+  tersoff_param_t *cparams;
+  //double **prefactor;
+  //memory->create(prefactor, neighoff[allnum], 2, "pair:prefactor");
+  memory->create(firstshort, allnum + 1, "pair:numshort");
+  memory->create(shortlist, neightotal, "pair:shortlist");
+  memory->create(cparams, nparams, "pair:cparams");
   firstshort[0] = 0;
-  int *shortlist;
-  double **prefactor;
-  memory->create(prefactor, neighoff[allnum], 2, "pair:prefactor");
-  memory->create(shortlist, neighoff[allnum], "pair:shortlist");
+
+  for (i = 0; i < nparams; i ++){
+    cparams[i].lam1        = params[i].lam1       ;
+    cparams[i].lam2        = params[i].lam2       ;
+    cparams[i].lam3        = params[i].lam3       ;
+    cparams[i].c           = params[i].c          ;
+    cparams[i].d           = params[i].d          ;
+    cparams[i].h           = params[i].h          ;
+    cparams[i].gamma       = params[i].gamma      ;
+    cparams[i].powerm      = params[i].powerm     ;
+    cparams[i].powern      = params[i].powern     ;
+    cparams[i].beta        = params[i].beta       ;
+    cparams[i].biga        = params[i].biga       ;
+    cparams[i].bigb        = params[i].bigb       ;
+    cparams[i].bigd        = params[i].bigd       ;
+    cparams[i].bigr        = params[i].bigr       ;
+    cparams[i].cut         = params[i].cut        ;
+    cparams[i].cutsq       = params[i].cutsq      ;
+    cparams[i].c1          = params[i].c1         ;
+    cparams[i].c2          = params[i].c2         ;
+    cparams[i].c3          = params[i].c3         ;
+    cparams[i].c4          = params[i].c4         ;
+    cparams[i].ielement    = params[i].ielement   ;
+    cparams[i].jelement    = params[i].jelement   ;
+    cparams[i].kelement    = params[i].kelement   ;
+    cparams[i].powermint   = params[i].powermint  ;
+    cparams[i].Z_i         = params[i].Z_i        ;
+    cparams[i].Z_j         = params[i].Z_j        ;
+    cparams[i].ZBLcut      = params[i].ZBLcut     ;
+    cparams[i].ZBLexpscale = params[i].ZBLexpscale;
+    cparams[i].c5          = params[i].c5         ;
+    cparams[i].ca1         = params[i].ca1        ;
+    cparams[i].ca4         = params[i].ca4        ;
+    cparams[i].powern_del  = params[i].powern_del ;
+    cparams[i].c0          = params[i].c0         ;
+  }
+
+  pair_tersoff_compute_param_t pm;
+  pm.ilist      = ilist;
+  pm.numneigh   = numneigh;
+  pm.firstshort = firstshort;
+  pm.shortlist  = shortlist;
+  pm.elem2param = elem2param[0][0];
+  pm.map        = map;
+  pm.params     = cparams;
+  pm.x          = (double(*)[3])(void*)x[0];
+  pm.f          = (double(*)[3])(void*)f[0];
+  if (vflag_atom)
+    pm.vatom      = (double(*)[6])(void*)vatom[0];
+  if (eflag_atom)
+    pm.eatom      = eatom;
+  pm.type       = type;
+  pm.nlocal     = nlocal;
+  pm.nghost     = atom->nghost;
+  pm.ntotal     = nlocal + atom->nghost;
+  pm.inum       = inum;
+  pm.gnum       = gnum;
+  pm.ntypes     = atom->ntypes;
+  pm.nelements  = nelements;
+  pm.eng_vdwl   = 0;
+  pm.eng_coul   = 0;
+  pm.virial[0]  = 0;
+  pm.virial[1]  = 0;
+  pm.virial[2]  = 0;
+  pm.virial[3]  = 0;
+  pm.virial[4]  = 0;
+  pm.virial[5]  = 0;
+  pm.eflag      = eflag;
+  pm.vflag      = vflag;
+  pm.evflag     = evflag;
+
+  pm.eflag_global = eflag_global;
+  pm.vflag_global = vflag_global;
+  pm.eflag_atom = eflag_atom;
+  pm.vflag_atom = vflag_atom;
+  pm.eflag_either = eflag_either;
+  pm.vflag_either = vflag_either;
+
   double fxtmp,fytmp,fztmp;
   int numshorti, numshortj;
   GPTLstart("pair");
@@ -168,15 +248,21 @@ void PairTersoffSunway::compute(int eflag, int vflag){
     for (jj = 0; jj < jnum; jj ++){
       j = jlist[jj];
       j &= NEIGHMASK;
+      jtype = map[type[j]];
       dij[0] = xtmp - x[j][0];
       dij[1] = ytmp - x[j][1];
       dij[2] = ztmp - x[j][2];
 
       r2ij = dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
       if (r2ij < cutshortsq){
-	neighshort[numshorti ++] = j;
+	neighshort[numshorti].idx = j;
+        neighshort[numshorti].type = jtype;
+        neighshort[numshorti].x[0] = x[j][0];
+        neighshort[numshorti].x[1] = x[j][1];
+        neighshort[numshorti].x[2] = x[j][2];
+        neighshort[numshorti].r2 = r2ij;
+        numshorti ++;
       }
-      jtype = map[type[j]];
       iparam_ij = elem2param[itype][jtype][jtype];
       if (r2ij > params[iparam_ij].cutsq) continue;
       repulsive(&params[iparam_ij], r2ij, fpair, eflag, evdwl);
@@ -202,166 +288,176 @@ void PairTersoffSunway::compute(int eflag, int vflag){
     ztmp = x[i][2];
     fxtmp = fytmp = fztmp = 0.0;
     jnum = firstshort[i + 1] - firstshort[i];
-    jlist = shortlist + firstshort[i];
+    jlist_short = shortlist + firstshort[i];
 
     for (jj = 0; jj < jnum; jj ++){
-      j = jlist[jj];
-      jtype = map[type[j]];
+      jshort = jlist_short + jj;
+      j = jshort->idx;
+      jtype = jshort->type;//map[type[j]];
       iparam_ij = elem2param[itype][jtype][jtype];
-      dij[0] = x[j][0] - xtmp;
-      dij[1] = x[j][1] - ytmp;
-      dij[2] = x[j][2] - ztmp;
+      dij[0] = jshort->x[0] - xtmp;
+      dij[1] = jshort->x[1] - ytmp;
+      dij[2] = jshort->x[2] - ztmp;
       dji[0] = -dij[0];
       dji[1] = -dij[1];
       dji[2] = -dij[2];
 
-      r2ij = dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-      if (r2ij >= params[iparam_ij].cutsq) continue;
+      r2ij = jshort->r2;//dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
+      //if (r2ij >= params[iparam_ij].cutsq) continue;
 
       zeta_ij = zeta_ji = 0.0;
 
-      klist = shortlist + firstshort[i];
+      klist_short = shortlist + firstshort[i];
       knum = firstshort[i + 1] - firstshort[i];
 
       //compute zeta_ij
       for (kk = 0; kk < knum; kk ++){
-	if (jj == kk) continue;
-	k = klist[kk];
-	ktype = map[type[k]];
-	iparam_ijk = elem2param[itype][jtype][ktype];
+        if (jj == kk) continue;
+        kshort = klist_short + kk;
+        ktype = kshort->type;//map[type[k]];
+        iparam_ijk = elem2param[itype][jtype][ktype];
 
-	dik[0] = x[k][0] - xtmp;
-	dik[1] = x[k][1] - ytmp;
-	dik[2] = x[k][2] - ztmp;
-	r2ik = dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
-	if (r2ik >= params[iparam_ijk].cutsq) continue;
-	zeta_ij += zeta(params + iparam_ijk, r2ij, r2ik, dij, dik);
+        dik[0] = kshort->x[0] - xtmp;
+        dik[1] = kshort->x[1] - ytmp;
+        dik[2] = kshort->x[2] - ztmp;
+        r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
+        //if (r2ik >= params[iparam_ijk].cutsq) continue;
+        zeta_ij += zeta(params + iparam_ijk, r2ij, r2ik, dij, dik);
       }
-      klist = shortlist + firstshort[j];
+      klist_short = shortlist + firstshort[j];
       knum = firstshort[j + 1] - firstshort[j];
 
       //also for zeta_ji
       for (kk = 0; kk < knum; kk ++){
-	k = klist[kk];
-	if (k == i) continue;
-	ktype = map[type[k]];
-	iparam_jik = elem2param[jtype][itype][ktype];
-	iparam_jki = elem2param[jtype][ktype][itype];
-	djk[0] = x[k][0] - x[j][0];
-	djk[1] = x[k][1] - x[j][1];
-	djk[2] = x[k][2] - x[j][2];
-	r2jk = djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
-	if (r2jk >= params[iparam_jik].cutsq) continue;
-	zeta_ji += zeta(params + iparam_jik, r2ij, r2jk, dji, djk);
+        kshort = klist_short + kk;
+        if (kshort->idx == i) continue;
+        ktype = kshort->type;//map[type[k]];
+        iparam_jik = elem2param[jtype][itype][ktype];
+        iparam_jki = elem2param[jtype][ktype][itype];
+        djk[0] = kshort->x[0] - jshort->x[0];
+        djk[1] = kshort->x[1] - jshort->x[1];
+        djk[2] = kshort->x[2] - jshort->x[2];
+        r2jk = kshort->r2;//djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
+        //if (r2jk >= params[iparam_jik].cutsq) continue;
+        zeta_ji += zeta(params + iparam_jik, r2ij, r2jk, dji, djk);
       }
       force_zeta(params + iparam_ij, r2ij, zeta_ij, fpair, prefactor_ij, eflag, evdwl);
       if (i < nlocal){
-	fxtmp += dij[0] * fpair;
-	fytmp += dij[1] * fpair;
-	fztmp += dij[2] * fpair;
+        fxtmp += dij[0] * fpair;
+        fytmp += dij[1] * fpair;
+        fztmp += dij[2] * fpair;
        
-	if (evflag) ev_tally_full(i, evdwl, 0.0, -fpair, -dij[0], -dij[1], -dij[2]);
+        if (evflag) ev_tally_full(i, evdwl, 0.0, -fpair, -dij[0], -dij[1], -dij[2]);
       }
       force_zeta(params + iparam_ij, r2ij, zeta_ji, fpair, prefactor_ji, eflag, evdwl);
       if (i < nlocal){
-	fxtmp += dij[0] * fpair;
-	fytmp += dij[1] * fpair;
-	fztmp += dij[2] * fpair;
-	if (evflag) ev_tally_full(i, evdwl, 0.0, -fpair, -dij[0], -dij[1], -dij[2]);
+        fxtmp += dij[0] * fpair;
+        fytmp += dij[1] * fpair;
+        fztmp += dij[2] * fpair;
+        if (evflag) ev_tally_full(i, evdwl, 0.0, -fpair, -dij[0], -dij[1], -dij[2]);
       }
-
-      prefactor[neighoff[i] + jj][0] = prefactor_ij;
-      prefactor[neighoff[i] + jj][1] = prefactor_ji;
+      jshort->prefactor_fwd = prefactor_ij;
+      jshort->prefactor_rev = prefactor_ji;
+      // prefactor[firstshort[i] + jj][0] = prefactor_ij;
+      // prefactor[firstshort[i] + jj][1] = prefactor_ji;
     }
     f[i][0] += fxtmp;
     f[i][1] += fytmp;
     f[i][2] += fztmp;
   }
   GPTLstop("zeta");
+  
   GPTLstart("attractive");
-  for (ii = 0; ii < inum; ii ++){
-    i = ilist[ii];
-    itype = map[type[i]];
-    xtmp = x[i][0];
-    ytmp = x[i][1];
-    ztmp = x[i][2];
-    jlist = shortlist + firstshort[i];
-    jnum = firstshort[i + 1] - firstshort[i];
-    fxtmp = fytmp = fztmp = 0;
-    for (jj = 0; jj < jnum; jj ++){
-      j = jlist[jj];
-      jtype = map[type[j]];
-      iparam_ij = elem2param[itype][jtype][jtype];
-      dij[0] = x[j][0] - xtmp;
-      dij[1] = x[j][1] - ytmp;
-      dij[2] = x[j][2] - ztmp;
-      double dji[3];
-      dji[0] = -dij[0];
-      dji[1] = -dij[1];
-      dji[2] = -dij[2];
+  // for (ii = 0; ii < inum; ii ++){
+  //   i = ilist[ii];
+  //   itype = map[type[i]];
+  //   xtmp = x[i][0];
+  //   ytmp = x[i][1];
+  //   ztmp = x[i][2];
+  //   jlist_short = shortlist + firstshort[i];
+  //   jnum = firstshort[i + 1] - firstshort[i];
+  //   fxtmp = fytmp = fztmp = 0;
+  //   for (jj = 0; jj < jnum; jj ++){
+  //     jshort = jlist_short + jj;
+  //     jtype = jshort->type;//map[type[j]];
+  //     j = jshort->idx;
+  //     iparam_ij = elem2param[itype][jtype][jtype];
+  //     dij[0] = jshort->x[0] - xtmp;
+  //     dij[1] = jshort->x[1] - ytmp;
+  //     dij[2] = jshort->x[2] - ztmp;
+  //     double dji[3];
+  //     dji[0] = -dij[0];
+  //     dji[1] = -dij[1];
+  //     dji[2] = -dij[2];
 
-      r2ij = dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-      if (r2ij >= params[iparam_ij].cutsq) continue;
-      double prefactor_ij = prefactor[neighoff[i] + jj][0];
-      double prefactor_ji = prefactor[neighoff[i] + jj][1];
-      zeta_ij = zeta_ji = 0.0;
-      klist = shortlist + firstshort[i];
-      knum = firstshort[i + 1] - firstshort[i];
+  //     r2ij = jshort->r2;//dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
+  //     //if (r2ij >= params[iparam_ij].cutsq) continue;
+  //     double prefactor_ij = jshort->prefactor_fwd;//prefactor[firstshort[i] + jj][0];
+  //     double prefactor_ji = jshort->prefactor_rev;//prefactor[firstshort[i] + jj][1];
+  //     zeta_ij = zeta_ji = 0.0;
+  //     klist_short = shortlist + firstshort[i];
+  //     knum = firstshort[i + 1] - firstshort[i];
 
-      for (kk = 0; kk < knum; kk ++){
-	if (jj == kk) continue;
-	k = klist[kk];
-	ktype = map[type[k]];
-	iparam_ijk = elem2param[itype][jtype][ktype];
-	dik[0] = x[k][0] - xtmp;
-	dik[1] = x[k][1] - ytmp;
-	dik[2] = x[k][2] - ztmp;
-	r2ik = dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
-	if (r2ik >= params[iparam_ijk].cutsq) continue;
-	attractive(params + iparam_ijk, prefactor_ij, r2ij, r2ik, dij, dik, fi, fj, fk);
-	fxtmp += fi[0];
-	fytmp += fi[1];
-	fztmp += fi[2];
-	if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fj, fk, dij, dik);
-      }
-      klist = shortlist + firstshort[j];
-      knum = firstshort[j + 1] - firstshort[j];
-      for (kk = 0; kk < knum; kk ++){
-	k = klist[kk];
-	if (i == k) continue;
-	ktype = map[type[k]];
-	iparam_jik = elem2param[jtype][itype][ktype];
-	iparam_jki = elem2param[jtype][ktype][itype];
-	djk[0] = x[k][0] - x[j][0];
-	djk[1] = x[k][1] - x[j][1];
-	djk[2] = x[k][2] - x[j][2];
-	r2jk = djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
-	if (r2jk >= params[iparam_jik].cutsq) continue;
-	attractive(params + iparam_jik, prefactor_ji, r2ij, r2jk, dji, djk, fj, fi, fk);
-	fxtmp += fi[0];
-	fytmp += fi[1];
-	fztmp += fi[2];
-	if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fi, fk, dji, djk);
-	double prefactor_jk = prefactor[neighoff[j] + kk][0];
+  //     for (kk = 0; kk < knum; kk ++){
+  //       if (jj == kk) continue;
+  //       kshort = klist_short + kk;
+  //       ktype = kshort->type;//map[type[k]];
+  //       iparam_ijk = elem2param[itype][jtype][ktype];
+  //       dik[0] = kshort->x[0] - xtmp;
+  //       dik[1] = kshort->x[1] - ytmp;
+  //       dik[2] = kshort->x[2] - ztmp;
+  //       r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
+  //       //if (r2ik >= params[iparam_ijk].cutsq) continue;
+  //       attractive(params + iparam_ijk, prefactor_ij, r2ij, r2ik, dij, dik, fi, fj, fk);
+  //       fxtmp += fi[0];
+  //       fytmp += fi[1];
+  //       fztmp += fi[2];
+  //       if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fj, fk, dij, dik);
+  //     }
+  //     klist_short = shortlist + firstshort[j];
+  //     knum = firstshort[j + 1] - firstshort[j];
+  //     for (kk = 0; kk < knum; kk ++){
+  //       kshort = klist_short + kk;
+  //       if (kshort->idx == i) continue;
+  //       ktype = kshort->type;//map[type[k]];
+  //       iparam_jik = elem2param[jtype][itype][ktype];
+  //       iparam_jki = elem2param[jtype][ktype][itype];
+  //       djk[0] = kshort->x[0] - x[j][0];
+  //       djk[1] = kshort->x[1] - x[j][1];
+  //       djk[2] = kshort->x[2] - x[j][2];
+  //       r2jk = kshort->r2;//djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
+  //       //if (r2jk >= params[iparam_jik].cutsq) continue;
+  //       attractive(params + iparam_jik, prefactor_ji, r2ij, r2jk, dji, djk, fj, fi, fk);
+  //       fxtmp += fi[0];
+  //       fytmp += fi[1];
+  //       fztmp += fi[2];
+  //       if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fi, fk, dji, djk);
+  //       double prefactor_jk = kshort->prefactor_fwd;//[firstshort[j] + kk][0];
 
-	attractive(params + iparam_jki, prefactor_jk, r2jk, r2ij, djk, dji, fj, fk, fi);
-	fxtmp += fi[0];
-	fytmp += fi[1];
-	fztmp += fi[2];
-	if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fk, fi, djk, dji);
-      }
-    }
-    f[i][0] += fxtmp;
-    f[i][1] += fytmp;
-    f[i][2] += fztmp;
-  }
+  //       attractive(params + iparam_jki, prefactor_jk, r2jk, r2ij, djk, dji, fj, fk, fi);
+  //       fxtmp += fi[0];
+  //       fytmp += fi[1];
+  //       fztmp += fi[2];
+  //       if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fk, fi, djk, dji);
+  //     }
+  //   }
+  //   f[i][0] += fxtmp;
+  //   f[i][1] += fytmp;
+  //   f[i][2] += fztmp;
+  // }
+  pair_tersoff_compute_attractive(&pm);
   GPTLstop("attractive");
+  eng_vdwl += pm.eng_vdwl;
+  eng_coul += pm.eng_coul;
+
+  for (i = 0; i < 6; i ++)
+    virial[i] += pm.virial[i];
+
   if (vflag_fdotr) virial_fdotr_compute();
-  memory->destroy(prefactor);
-  memory->destroy(neighoff);
+  //memory->destroy(prefactor);
   memory->destroy(firstshort);
   memory->destroy(shortlist);
-
+  memory->destroy(cparams);
 }
 
 /* ---------------------------------------------------------------------- */

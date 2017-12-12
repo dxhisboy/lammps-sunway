@@ -14,6 +14,11 @@ variable        z index 4
 variable        xx equal 20*$x
 variable        yy equal 20*$y
 variable        zz equal 10*$z
+
+#variable        xx equal $x
+#variable        yy equal $y
+#variable        zz equal $z
+
 variable        rr equal floor($t*$m)
 variable        root getenv LMP_ROOT
 
@@ -44,4 +49,4 @@ timestep	0.001
 if "$p > 0"     then "run_style verlet/power"
 
 if "$w > 0"     then "run $w"
-run             ${rr}
+#run             ${rr}

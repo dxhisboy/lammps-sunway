@@ -1,4 +1,5 @@
 #include "sunway.h"
+#include "pair_lj_cut_sw64.h"
 #include "gptl.h"
 #include <stdlib.h>
 #include <simd.h>
@@ -8,12 +9,12 @@
 #include "lwpf.h"
 //int r = 0;
 
-extern SLAVE_FUN(pair_lj_cut_sunway_compute_para)(compute_param_t *);
-extern SLAVE_FUN(pair_lj_cut_sunway_compute_para_vec)(compute_param_t *);
-extern SLAVE_FUN(pair_lj_cut_sunway_compute_para_vec_le)(compute_param_t *);
-extern SLAVE_FUN(pair_lj_cut_sunway_compute_a2s)(compute_param_t *);
+extern SLAVE_FUN(pair_lj_cut_sunway_compute_para)(pair_lj_cut_compute_param_t *);
+extern SLAVE_FUN(pair_lj_cut_sunway_compute_para_vec)(pair_lj_cut_compute_param_t *);
+extern SLAVE_FUN(pair_lj_cut_sunway_compute_para_vec_le)(pair_lj_cut_compute_param_t *);
+extern SLAVE_FUN(pair_lj_cut_sunway_compute_a2s)(pair_lj_cut_compute_param_t *);
 
-void pair_lj_cut_sunway_compute(compute_param_t *pm){
+void pair_lj_cut_sunway_compute(pair_lj_cut_compute_param_t *pm){
   if (athread_idle() == 0)
     athread_init();
   /* if (r == 0){ */
@@ -51,10 +52,7 @@ void pair_lj_cut_sunway_compute(compute_param_t *pm){
 #include "lwpf.h"
 #include <dma.h>
 #include <math.h>
-/* #define JPAGE_SIZE 64 */
-/* #define JLIST_SIZE 256 */
-/* #define IPAGE_SIZE 16 */
-inline void ev_tally_full(compute_param_t *pm, int i, double evdwl, double ecoul, double fpair,
+inline void ev_tally_full(pair_lj_cut_compute_param_t *pm, int i, double evdwl, double ecoul, double fpair,
                    double delx, double dely, double delz,
                    double *eng_coul, double *eng_vdwl, double *virial,
                    double *eatom, double (*vatom)[6])
@@ -162,10 +160,10 @@ static inline void reg_reduce_inplace_doublev4(doublev4 *arr, int len){
 #define JCACHE_MMASK (JCACHE_LINESIZE - 1)
 #define JCACHE_LMASK (JCACHE_LINECNT - 1)
 
-void pair_lj_cut_sunway_compute_a2s(compute_param_t *pm){
+void pair_lj_cut_sunway_compute_a2s(pair_lj_cut_compute_param_t *pm){
   pe_init();
-  compute_param_t l_pm;
-  pe_get(pm, &l_pm, sizeof(compute_param_t));
+  pair_lj_cut_compute_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(pair_lj_cut_compute_param_t));
   pe_syn();
   double x[ILIST_PAGESIZE][3];
   int type[ILIST_PAGESIZE];
@@ -191,7 +189,7 @@ void pair_lj_cut_sunway_compute_a2s(compute_param_t *pm){
   }
 }
 
-void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
+void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
   //lwpf_start(ALL);
   pe_init();
   int i,j,ii,jj,inum,jnum,itype,jtype;
@@ -211,8 +209,8 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
   double *eng_coul = eng_vdwl + 1;
   double *virial = eng_coul + 1;
 
-  compute_param_t l_pm;
-  pe_get(pm, &l_pm, sizeof(compute_param_t));
+  pair_lj_cut_compute_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(pair_lj_cut_compute_param_t));
   double INF = 1.0 / 0.0;
   pe_syn();
   int ntp1 = l_pm.ntypes + 1;
@@ -389,7 +387,7 @@ void pair_lj_cut_sunway_compute_para(compute_param_t *pm){
 }
 
 __thread_local volatile int cache_reply;            
-void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
+void pair_lj_cut_sunway_compute_para_vec(pair_lj_cut_compute_param_t *pm){
   //lwpf_start(ALL);
   pe_init();
   doublev4 v4_1 = 1.0;
@@ -413,8 +411,8 @@ void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
   double *eng_coul = eng_vdwl + 1;
   double *virial = eng_coul + 1;
 
-  compute_param_t l_pm;
-  pe_get(pm, &l_pm, sizeof(compute_param_t));
+  pair_lj_cut_compute_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(pair_lj_cut_compute_param_t));
   //double INF = 1.0 / 0.0;
   doublev4 INF_v4 = simd_set_doublev4(1e8, 1e8, 1e8, 0);
   pe_syn();
@@ -757,7 +755,7 @@ void pair_lj_cut_sunway_compute_para_vec(compute_param_t *pm){
   //lwpf_stop(ALL);
 }
 
-void pair_lj_cut_sunway_compute_para_vec_le(compute_param_t *pm){
+void pair_lj_cut_sunway_compute_para_vec_le(pair_lj_cut_compute_param_t *pm){
   //lwpf_start(ALL);
   pe_init();
   doublev4 v4_1 = 1.0;
@@ -769,20 +767,14 @@ void pair_lj_cut_sunway_compute_para_vec_le(compute_param_t *pm){
   double rsq,r2inv,r6inv,forcelj,factor_lj;
   int *ilist,*jlist,*numneigh,**firstneigh;
 
-  double (*x)[3] = pm->x;
-  double (*f)[3] = pm->f;
-  //double xi[IPAGE_SIZE][3], fi[IPAGE_SIZE][3];
-  //double ti[IPAGE_SIZE];
-  int *type = pm->type;
-  int nlocal = pm->nlocal;
   double *special_lj;
   doublev4 eng_virial[2];
   double *eng_vdwl = (double*)(void*)eng_virial;
   double *eng_coul = eng_vdwl + 1;
   double *virial = eng_coul + 1;
 
-  compute_param_t l_pm;
-  pe_get(pm, &l_pm, sizeof(compute_param_t));
+  pair_lj_cut_compute_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(pair_lj_cut_compute_param_t));
   //double INF = 1.0 / 0.0;
   doublev4 INF_v4 = simd_set_doublev4(1e8, 1e8, 1e8, 0);
   pe_syn();
@@ -814,9 +806,16 @@ void pair_lj_cut_sunway_compute_para_vec_le(compute_param_t *pm){
     virial_v4[i] = 0;
   eng_virial[0] = 0;
   eng_virial[1] = eng_virial[0];
-  inum = pm->inum;
-  numneigh = pm->numneigh;
-  firstneigh = pm->firstneigh;
+  inum = l_pm.inum;
+  numneigh = l_pm.numneigh;
+  firstneigh = l_pm.firstneigh;
+  double (*x)[3] = l_pm.x;
+  double (*f)[3] = l_pm.f;
+  //double xi[IPAGE_SIZE][3], fi[IPAGE_SIZE][3];
+  //double ti[IPAGE_SIZE];
+  int *type = l_pm.type;
+  int nlocal = l_pm.nlocal;
+
   int jlist_buf[JLIST_PAGESIZE];
   atom_in_t jlist_atom[JLIST_PAGESIZE];
 

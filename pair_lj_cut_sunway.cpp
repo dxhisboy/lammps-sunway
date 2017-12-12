@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pair_lj_cut_sunway.h"
+#include "pair_lj_cut_sw64.h"
 #include "atom.h"
 #include "comm.h"
 #include "force.h"
@@ -65,9 +66,9 @@ PairLJCutSunway::~PairLJCutSunway()
 }
 
 /* ---------------------------------------------------------------------- */
-//extern void pair_lj_cut_sunway_compute(compute_param_t *pm);
+//extern void pair_lj_cut_sunway_compute(pair_lj_cut_compute_param_t *pm);
 extern "C"{
-  void pair_lj_cut_sunway_compute(compute_param_t *pm);
+  void pair_lj_cut_sunway_compute(pair_lj_cut_compute_param_t *pm);
 }
 void PairLJCutSunway::compute(int eflag, int vflag)
 {
@@ -77,7 +78,7 @@ void PairLJCutSunway::compute(int eflag, int vflag)
   int *ilist,*jlist,*numneigh,**firstneigh;
   //puts("in my pair lj cut");
 
-  compute_param_t pm;
+  pair_lj_cut_compute_param_t pm;
 
   GPTLstart("compute");
   GPTLstart("ev_setup");
