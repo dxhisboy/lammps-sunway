@@ -391,7 +391,7 @@ inline void lwpf_print(FILE *f, long *ctrs, int kcnt, const char *unit, char *kn
   free(pcr2_maxk);free(pcr2_mink);free(pcr2_avgk);
 }
 #define U(x)                                                            \
-  ctrs = malloc(sizeof(long) * lwpf_kernel_count_ ## x * 64);           \
+  ctrs = malloc(sizeof(long) * lwpf_kernel_count_ ## x * 64 * 4);       \
   athread_spawn(lwpf_finish_ ##x, ctrs);                                \
   athread_join();                                                       \
   lwpf_print(f, ctrs, lwpf_kernel_count_ ## x, #x, lwpf_kernel_names_ ##x); \
@@ -399,7 +399,8 @@ inline void lwpf_print(FILE *f, long *ctrs, int kcnt, const char *unit, char *kn
 
 static inline void lwpf_finish(FILE *f){
   long *ctrs;
-  LWPF_UNITS
+  LWPF_UNITS;
+  puts("finished");
 }
 #undef U
 #endif

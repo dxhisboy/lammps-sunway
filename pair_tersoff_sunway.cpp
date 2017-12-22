@@ -167,6 +167,8 @@ void PairTersoffSunway::compute(int eflag, int vflag){
     cparams[i].biga        = params[i].biga       ;
     cparams[i].bigb        = params[i].bigb       ;
     cparams[i].bigd        = params[i].bigd       ;
+    cparams[i].bigdinv     = 1 / params[i].bigd   ;
+    cparams[i].c2divd2     = params[i].c * params[i].c / (params[i].d * params[i].d);
     cparams[i].bigr        = params[i].bigr       ;
     cparams[i].cut         = params[i].cut        ;
     cparams[i].cutsq       = params[i].cutsq      ;
@@ -190,6 +192,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   }
 
   pair_tersoff_compute_param_t pm;
+  pm.rank       = comm->me;
   pm.ilist      = ilist;
   pm.numneigh   = numneigh;
   pm.firstshort = firstshort;
@@ -211,6 +214,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   pm.gnum       = gnum;
   pm.ntypes     = atom->ntypes;
   pm.nelements  = nelements;
+  pm.nparams    = nparams;
   pm.eng_vdwl   = 0;
   pm.eng_coul   = 0;
   pm.virial[0]  = 0;
@@ -235,6 +239,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   GPTLstart("pair");
   for (ii = 0; ii < allnum; ii ++){
     i = ilist[ii];
+
     itype = map[type[i]];
     xtmp = x[i][0];
     ytmp = x[i][1];
@@ -247,6 +252,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
 
     for (jj = 0; jj < jnum; jj ++){
       j = jlist[jj];
+
       j &= NEIGHMASK;
       jtype = map[type[j]];
       dij[0] = xtmp - x[j][0];
@@ -257,15 +263,16 @@ void PairTersoffSunway::compute(int eflag, int vflag){
       if (r2ij < cutshortsq){
 	neighshort[numshorti].idx = j;
         neighshort[numshorti].type = jtype;
-        neighshort[numshorti].x[0] = x[j][0];
-        neighshort[numshorti].x[1] = x[j][1];
-        neighshort[numshorti].x[2] = x[j][2];
+        neighshort[numshorti].d[0] = -dij[0];
+        neighshort[numshorti].d[1] = -dij[1];
+        neighshort[numshorti].d[2] = -dij[2];
         neighshort[numshorti].r2 = r2ij;
         numshorti ++;
       }
       iparam_ij = elem2param[itype][jtype][jtype];
       if (r2ij > params[iparam_ij].cutsq) continue;
       repulsive(&params[iparam_ij], r2ij, fpair, eflag, evdwl);
+    
       if (i < nlocal){
 	fxtmp += dij[0] * fpair;
 	fytmp += dij[1] * fpair;
@@ -273,9 +280,11 @@ void PairTersoffSunway::compute(int eflag, int vflag){
 	if (evflag) ev_tally_full(i, evdwl, 0.0, fpair, dij[0], dij[1], dij[2]);
       }
     }
-    f[i][0] += fxtmp;
-    f[i][1] += fytmp;
-    f[i][2] += fztmp;
+    if (i < nlocal){
+      f[i][0] += fxtmp;
+      f[i][1] += fytmp;
+      f[i][2] += fztmp;
+    }
     firstshort[i + 1] = firstshort[i] + numshorti;
   }
   GPTLstop("pair");
@@ -295,15 +304,15 @@ void PairTersoffSunway::compute(int eflag, int vflag){
       j = jshort->idx;
       jtype = jshort->type;//map[type[j]];
       iparam_ij = elem2param[itype][jtype][jtype];
-      dij[0] = jshort->x[0] - xtmp;
-      dij[1] = jshort->x[1] - ytmp;
-      dij[2] = jshort->x[2] - ztmp;
+      dij[0] = jshort->d[0];
+      dij[1] = jshort->d[1];
+      dij[2] = jshort->d[2];
       dji[0] = -dij[0];
       dji[1] = -dij[1];
       dji[2] = -dij[2];
 
       r2ij = jshort->r2;//dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-      //if (r2ij >= params[iparam_ij].cutsq) continue;
+      if (r2ij >= params[iparam_ij].cutsq) continue;
 
       zeta_ij = zeta_ji = 0.0;
 
@@ -317,11 +326,11 @@ void PairTersoffSunway::compute(int eflag, int vflag){
         ktype = kshort->type;//map[type[k]];
         iparam_ijk = elem2param[itype][jtype][ktype];
 
-        dik[0] = kshort->x[0] - xtmp;
-        dik[1] = kshort->x[1] - ytmp;
-        dik[2] = kshort->x[2] - ztmp;
+        dik[0] = kshort->d[0];
+        dik[1] = kshort->d[1];
+        dik[2] = kshort->d[2];
         r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
-        //if (r2ik >= params[iparam_ijk].cutsq) continue;
+        if (r2ik >= params[iparam_ijk].cutsq) continue;
         zeta_ij += zeta(params + iparam_ijk, r2ij, r2ik, dij, dik);
       }
       klist_short = shortlist + firstshort[j];
@@ -334,11 +343,11 @@ void PairTersoffSunway::compute(int eflag, int vflag){
         ktype = kshort->type;//map[type[k]];
         iparam_jik = elem2param[jtype][itype][ktype];
         iparam_jki = elem2param[jtype][ktype][itype];
-        djk[0] = kshort->x[0] - jshort->x[0];
-        djk[1] = kshort->x[1] - jshort->x[1];
-        djk[2] = kshort->x[2] - jshort->x[2];
+        djk[0] = kshort->d[0];
+        djk[1] = kshort->d[1];
+        djk[2] = kshort->d[2];
         r2jk = kshort->r2;//djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
-        //if (r2jk >= params[iparam_jik].cutsq) continue;
+        if (r2jk >= params[iparam_jik].cutsq) continue;
         zeta_ji += zeta(params + iparam_jik, r2ij, r2jk, dji, djk);
       }
       force_zeta(params + iparam_ij, r2ij, zeta_ij, fpair, prefactor_ij, eflag, evdwl);
@@ -361,12 +370,13 @@ void PairTersoffSunway::compute(int eflag, int vflag){
       // prefactor[firstshort[i] + jj][0] = prefactor_ij;
       // prefactor[firstshort[i] + jj][1] = prefactor_ji;
     }
-    f[i][0] += fxtmp;
-    f[i][1] += fytmp;
-    f[i][2] += fztmp;
+    if (i < nlocal){
+      f[i][0] += fxtmp;
+      f[i][1] += fytmp;
+      f[i][2] += fztmp;
+    }
   }
   GPTLstop("zeta");
-  
   GPTLstart("attractive");
   // for (ii = 0; ii < inum; ii ++){
   //   i = ilist[ii];
@@ -382,16 +392,16 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   //     jtype = jshort->type;//map[type[j]];
   //     j = jshort->idx;
   //     iparam_ij = elem2param[itype][jtype][jtype];
-  //     dij[0] = jshort->x[0] - xtmp;
-  //     dij[1] = jshort->x[1] - ytmp;
-  //     dij[2] = jshort->x[2] - ztmp;
+  //     dij[0] = jshort->d[0];
+  //     dij[1] = jshort->d[1];
+  //     dij[2] = jshort->d[2];
   //     double dji[3];
   //     dji[0] = -dij[0];
   //     dji[1] = -dij[1];
   //     dji[2] = -dij[2];
 
   //     r2ij = jshort->r2;//dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-  //     //if (r2ij >= params[iparam_ij].cutsq) continue;
+  //     if (r2ij >= params[iparam_ij].cutsq) continue;
   //     double prefactor_ij = jshort->prefactor_fwd;//prefactor[firstshort[i] + jj][0];
   //     double prefactor_ji = jshort->prefactor_rev;//prefactor[firstshort[i] + jj][1];
   //     zeta_ij = zeta_ji = 0.0;
@@ -403,11 +413,11 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   //       kshort = klist_short + kk;
   //       ktype = kshort->type;//map[type[k]];
   //       iparam_ijk = elem2param[itype][jtype][ktype];
-  //       dik[0] = kshort->x[0] - xtmp;
-  //       dik[1] = kshort->x[1] - ytmp;
-  //       dik[2] = kshort->x[2] - ztmp;
+  //       dik[0] = kshort->d[0];
+  //       dik[1] = kshort->d[1];
+  //       dik[2] = kshort->d[2];
   //       r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
-  //       //if (r2ik >= params[iparam_ijk].cutsq) continue;
+  //       if (r2ik >= params[iparam_ijk].cutsq) continue;
   //       attractive(params + iparam_ijk, prefactor_ij, r2ij, r2ik, dij, dik, fi, fj, fk);
   //       fxtmp += fi[0];
   //       fytmp += fi[1];
@@ -422,11 +432,11 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   //       ktype = kshort->type;//map[type[k]];
   //       iparam_jik = elem2param[jtype][itype][ktype];
   //       iparam_jki = elem2param[jtype][ktype][itype];
-  //       djk[0] = kshort->x[0] - x[j][0];
-  //       djk[1] = kshort->x[1] - x[j][1];
-  //       djk[2] = kshort->x[2] - x[j][2];
+  //       djk[0] = kshort->d[0];
+  //       djk[1] = kshort->d[1];
+  //       djk[2] = kshort->d[2];
   //       r2jk = kshort->r2;//djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
-  //       //if (r2jk >= params[iparam_jik].cutsq) continue;
+  //       if (r2jk >= params[iparam_jik].cutsq) continue;
   //       attractive(params + iparam_jik, prefactor_ji, r2ij, r2jk, dji, djk, fj, fi, fk);
   //       fxtmp += fi[0];
   //       fytmp += fi[1];
@@ -447,12 +457,14 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   // }
   pair_tersoff_compute_attractive(&pm);
   GPTLstop("attractive");
-  eng_vdwl += pm.eng_vdwl;
-  eng_coul += pm.eng_coul;
-
-  for (i = 0; i < 6; i ++)
-    virial[i] += pm.virial[i];
-
+  if (eflag && eflag_global){
+    eng_vdwl += pm.eng_vdwl;
+    eng_coul += pm.eng_coul;
+  }
+  if (vflag && vflag_global){
+    for (i = 0; i < 6; i ++)
+      virial[i] += pm.virial[i];
+  }
   if (vflag_fdotr) virial_fdotr_compute();
   //memory->destroy(prefactor);
   memory->destroy(firstshort);

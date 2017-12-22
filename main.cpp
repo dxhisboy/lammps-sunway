@@ -39,7 +39,10 @@ int main(int argc, char **argv)
 // enable trapping selected floating point exceptions.
 // this uses GNU extensions and is only tested on Linux
 // therefore we make it depend on -D_GNU_SOURCE, too.
-
+  // long fpcr;
+  // asm volatile("rfpcr %0\n\t" : "=r"(fpcr));
+  // fpcr &= (~3L);
+  // asm volatile("wfpcr %0\n\t" : :, "r"(fpcr));
 #if defined(LAMMPS_TRAP_FPE) && defined(_GNU_SOURCE)
   fesetenv(FE_NOMASK_ENV);
   fedisableexcept(FE_ALL_EXCEPT);

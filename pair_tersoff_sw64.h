@@ -8,7 +8,7 @@ extern "C"{
     double c,d,h;
     double gamma,powerm;
     double powern,beta;
-    double biga,bigb,bigd,bigr;
+    double biga,bigb,bigd,bigr,bigdinv,c2divd2;
     double cut,cutsq;
     double c1,c2,c3,c4;
     int ielement,jelement,kelement;
@@ -21,7 +21,7 @@ extern "C"{
   } tersoff_param_t;
   typedef struct short_neigh_t{
     double prefactor_fwd, prefactor_rev;
-    double x[3], r2;
+    double d[3], r2;
     int idx, type;
   } short_neigh_t;
 
@@ -36,7 +36,7 @@ extern "C"{
     double (*x)[3], (*f)[3], (*vatom)[6], *eatom;
     //atom_in_t *atom_in;
     int *type;
-    int nlocal, nghost, ntotal, inum, gnum, ntypes, rank, nelements;
+    int nlocal, nghost, ntotal, inum, gnum, ntypes, rank, nelements, nparams;
     //vars to be copy back
     double eng_vdwl, eng_coul, virial[6];
     int eflag, vflag, evflag;

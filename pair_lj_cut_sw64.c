@@ -95,39 +95,39 @@ inline void ev_tally_full(pair_lj_cut_compute_param_t *pm, int i, double evdwl, 
   }
 }
 
-static inline void reg_reduce_inplace_doublev4(doublev4 *arr, int len){
-  int i, j;
-  doublev4 tmp;
-  for (i = 1; i < 8; i += i){
-    if ((_ROW & i) == i){
-      for (j = 0; j < len; j ++)
-        asm("putc %0, %1": : "r"(arr[j]), "r"(_ROW ^ i));
-    }
-    if ((_ROW & i) == 0){
-      for (j = 0; j < len; j ++){
-        asm("getc %0\n" : "=r"(tmp));
-        arr[j] += tmp;
-      }
-    }
-    athread_syn(COL_SCOPE, 0xff);
-  }
-  athread_syn(ARRAY_SCOPE, 0xffff);
-  if (_ROW == 0){
-    for (i = 1; i < 8; i += i){
-      if ((_COL & i) == i){
-        for (j = 0; j < len; j ++)
-          asm("putr %0, %1": : "r"(arr[j]), "r"(_COL ^ i));
-      }
-      if ((_COL & i) == 0){
-        for (j = 0; j < len; j ++){
-          asm("getr %0\n" : "=r"(tmp));
-          arr[j] += tmp;
-        }
-      }
-    }
-    athread_syn(ROW_SCOPE, 0xff);
-  }
-}
+/* static inline void reg_reduce_inplace_doublev4(doublev4 *arr, int len){ */
+/*   int i, j; */
+/*   doublev4 tmp; */
+/*   for (i = 1; i < 8; i += i){ */
+/*     if ((_ROW & i) == i){ */
+/*       for (j = 0; j < len; j ++) */
+/*         asm("putc %0, %1": : "r"(arr[j]), "r"(_ROW ^ i)); */
+/*     } */
+/*     if ((_ROW & i) == 0){ */
+/*       for (j = 0; j < len; j ++){ */
+/*         asm("getc %0\n" : "=r"(tmp)); */
+/*         arr[j] += tmp; */
+/*       } */
+/*     } */
+/*     athread_syn(COL_SCOPE, 0xff); */
+/*   } */
+/*   athread_syn(ARRAY_SCOPE, 0xffff); */
+/*   if (_ROW == 0){ */
+/*     for (i = 1; i < 8; i += i){ */
+/*       if ((_COL & i) == i){ */
+/*         for (j = 0; j < len; j ++) */
+/*           asm("putr %0, %1": : "r"(arr[j]), "r"(_COL ^ i)); */
+/*       } */
+/*       if ((_COL & i) == 0){ */
+/*         for (j = 0; j < len; j ++){ */
+/*           asm("getr %0\n" : "=r"(tmp)); */
+/*           arr[j] += tmp; */
+/*         } */
+/*       } */
+/*     } */
+/*     athread_syn(ROW_SCOPE, 0xff); */
+/*   } */
+/* } */
 #define transpose4x4(in0, in1, in2, in3, ot0, ot1, ot2, ot3) { \
     doublev4 o0 = simd_vshff(in1,in0,0x44);                     \
     doublev4 o1 = simd_vshff(in1,in0,0xEE);                     \
@@ -208,7 +208,7 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
   double *eng_vdwl = (double*)(void*)eng_virial;
   double *eng_coul = eng_vdwl + 1;
   double *virial = eng_coul + 1;
-
+  volatile int cache_reply;
   pair_lj_cut_compute_param_t l_pm;
   pe_get(pm, &l_pm, sizeof(pair_lj_cut_compute_param_t));
   double INF = 1.0 / 0.0;
@@ -239,7 +239,7 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
   double ei[ILIST_PAGESIZE], vi[ILIST_PAGESIZE][6], v[6];
   int ti[ILIST_PAGESIZE], *fn[ILIST_PAGESIZE], nn[ILIST_PAGESIZE];
   int ipage_start;
-  volatile int cache_reply;
+  //volatile int cache_reply;
   dma_desc cache_get_desc = 0;
   //memset(&cache_get_desc, 0, sizeof(dma_desc));
   dma_set_mode(&cache_get_desc, PE_MODE);
@@ -386,10 +386,11 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
   lwpf_stop(ALL);
 }
 
-__thread_local volatile int cache_reply;            
+//__thread_local volatile int cache_reply;            
 void pair_lj_cut_sunway_compute_para_vec(pair_lj_cut_compute_param_t *pm){
   //lwpf_start(ALL);
   pe_init();
+  volatile int cache_reply;            
   doublev4 v4_1 = 1.0;
   doublev4 v4_0 = 0;
   doublev4 v4_half = 0.5;
@@ -754,10 +755,11 @@ void pair_lj_cut_sunway_compute_para_vec(pair_lj_cut_compute_param_t *pm){
 
   //lwpf_stop(ALL);
 }
-
+//__thread_local volatile int cache_reply;
 void pair_lj_cut_sunway_compute_para_vec_le(pair_lj_cut_compute_param_t *pm){
   //lwpf_start(ALL);
   pe_init();
+  volatile int cache_reply;
   doublev4 v4_1 = 1.0;
   doublev4 v4_0 = 0;
   doublev4 v4_half = 0.5;
@@ -905,7 +907,8 @@ void pair_lj_cut_sunway_compute_para_vec_le(pair_lj_cut_compute_param_t *pm){
             if (jcache_tag[line] != tag){
               int mem = j & ~JCACHE_MMASK;
               cache_reply = 0;
-              dma(cache_get_desc, l_pm.atom_in + mem, j_cache[line]);
+              //dma(cache_get_desc, l_pm.atom_in + mem, j_cache[line]);
+              asm volatile("dma %0, %1, %2": : "r"(cache_get_desc), "r"(l_pm.atom_in + mem), "r"(j_cache[line]), "r"(cache_reply));
               while (cache_reply != 1);
               jcache_tag[line] = tag;
             }

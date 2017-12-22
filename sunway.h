@@ -50,7 +50,42 @@ extern "C"{
     int *type, *mask;
     int nlocal, groupbit;
   }fix_nve_param_t;
-
+#ifdef CPE
+#include <simd.h>
+  static inline void reg_reduce_inplace_doublev4(doublev4 *arr, int len){
+    int i, j;
+    doublev4 tmp;
+    for (i = 1; i < 8; i += i){
+      if ((_ROW & i) == i){
+        for (j = 0; j < len; j ++)
+          asm("putc %0, %1": : "r"(arr[j]), "r"(_ROW ^ i));
+      }
+      if ((_ROW & i) == 0){
+        for (j = 0; j < len; j ++){
+          asm("getc %0\n" : "=r"(tmp));
+          arr[j] += tmp;
+        }
+      }
+      athread_syn(COL_SCOPE, 0xff);
+    }
+    athread_syn(ARRAY_SCOPE, 0xffff);
+    if (_ROW == 0){
+      for (i = 1; i < 8; i += i){
+        if ((_COL & i) == i){
+          for (j = 0; j < len; j ++)
+            asm("putr %0, %1": : "r"(arr[j]), "r"(_COL ^ i));
+        }
+        if ((_COL & i) == 0){
+          for (j = 0; j < len; j ++){
+            asm("getr %0\n" : "=r"(tmp));
+            arr[j] += tmp;
+          }
+        }
+      }
+      athread_syn(ROW_SCOPE, 0xff);
+    }
+  }
+#endif
 #ifdef __cplusplus
 }
 #endif
