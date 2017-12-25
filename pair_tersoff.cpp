@@ -91,7 +91,6 @@ void PairTersoff::compute(int eflag, int vflag)
   double delr1[3],delr2[3],fi[3],fj[3],fk[3];
   double zeta_ij,prefactor;
   int *ilist,*jlist,*numneigh,**firstneigh;
-
   evdwl = 0.0;
   if (eflag || vflag) ev_setup(eflag,vflag);
   else evflag = vflag_fdotr = vflag_atom = 0;

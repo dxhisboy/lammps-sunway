@@ -185,6 +185,101 @@ inline void attractive(tersoff_param_t *param, double prefactor,
   // dri += fc*gijk_d*ex_delr*dcosdri;
   // dri += fc*gijk*ex_delr_d*(rik_hat - rij_hat);
 
+  vec3_scale(-dfc*gijk*ex_delr,rik_hat,fi);
+  vec3_scaleadd(fc*gijk_d*ex_delr,dcosdri,fi,fi);
+  vec3_scaleadd(fc*gijk*ex_delr_d,rik_hat,fi,fi);
+  vec3_scaleadd(-fc*gijk*ex_delr_d,rij_hat,fi,fi);
+  vec3_scale(prefactor,fi,fi);
+
+  // compute the derivative wrt Rj
+  // drj = fc*gijk_d*ex_delr*dcosdrj;
+  // drj += fc*gijk*ex_delr_d*rij_hat;
+  //Used below: fc, gijk_d, ex_delr, dcosdrj, gijk, ex_delr_d, dfc, rik_hat, dcosdrk
+  /* vec3_scale(fc*gijk_d*ex_delr,dcosdrj,fj); */
+  /* vec3_scaleadd(fc*gijk*ex_delr_d,rij_hat,fj,fj); */
+  /* vec3_scale(prefactor,fj,fj); */
+
+  /* // compute the derivative wrt Rk */
+  /* // drk = dfc*gijk*ex_delr*rik_hat; */
+  /* // drk += fc*gijk_d*ex_delr*dcosdrk; */
+  /* // drk += -fc*gijk*ex_delr_d*rik_hat; */
+
+  /* vec3_scale(dfc*gijk*ex_delr,rik_hat,fk); */
+  /* vec3_scaleadd(fc*gijk_d*ex_delr,dcosdrk,fk,fk); */
+  /* vec3_scaleadd(-fc*gijk*ex_delr_d,rik_hat,fk,fk); */
+  /* vec3_scale(prefactor,fk,fk); */
+
+  /* vec3_add(fj, fk, fi); */
+  /* vec3_scale(-1.0, fi, fi); */
+}
+
+inline void attractive_i(tersoff_param_t *param, double prefactor,
+                         double rsqij, double rsqik,
+                         double *delrij, double *delrik,
+                         double *fi, double *fj, double *fk)
+{
+  double rij_hat[3],rik_hat[3];
+  double rij,rijinv,rik,rikinv;
+
+  inv_sqrt(rsqij, rijinv);
+  rij = rsqij * rijinv;
+  vec3_scale(rijinv,delrij,rij_hat);
+
+  inv_sqrt(rsqik, rikinv);
+  rik = rsqik * rikinv;
+
+  vec3_scale(rikinv,delrik,rik_hat);
+
+  double gijk,gijk_d,ex_delr,ex_delr_d,fc,dfc,cos_theta,tmp;
+  double dcosdri[3],dcosdrj[3],dcosdrk[3];
+ 
+  double ters_R = param->bigr;
+  double ters_D = param->bigd;
+  double Dinv = param->bigdinv;
+  if (rik < ters_R - ters_D){
+    fc = 1.0;
+    dfc = 0.0;
+  } else if (rik > ters_R + ters_D){
+    fc = 0.0;
+    dfc = 0.0;
+  } else {
+    fc = 0.5 * (1.0 - sin_4_tersoff(MY_PI2 * (rik - ters_R) * Dinv));
+    dfc = -(MY_PI4 * Dinv) * cos_4_tersoff(MY_PI2 * (rik - ters_R) * Dinv);
+  }
+
+  tmp = param->lam3 * (rij-rik);
+  if (param->powermint == 3) tmp = tmp * tmp * tmp;
+
+  if (tmp > 69.0776) ex_delr = 1.e30;
+  else if (tmp < -69.0776) ex_delr = 0.0;
+  else ex_delr = exp_4_tersoff(tmp);
+
+  if (param->powermint == 3)
+    ex_delr_d = 3.0*param->lam3*param->lam3*param->lam3 *(rij-rik)*(rij-rik)*ex_delr;
+  else ex_delr_d = param->lam3 * ex_delr;
+
+  cos_theta = vec3_dot(rij_hat,rik_hat);
+
+  double ters_c = param->c * param->c;
+  double ters_d = param->d * param->d;
+  double hcth = param->h - cos_theta;
+  double numerator = -2.0 * ters_c * hcth;
+  double denominator = 1.0 / (ters_d + hcth * hcth);
+  gijk = param->gamma * (1.0 + param->c2divd2 - ters_c * denominator);
+  gijk_d = param->gamma * numerator * denominator * denominator;
+
+  vec3_scaleadd(-cos_theta,rij_hat,rik_hat,dcosdrj);
+  vec3_scale(rijinv,dcosdrj,dcosdrj);
+  vec3_scaleadd(-cos_theta,rik_hat,rij_hat,dcosdrk);
+  vec3_scale(rikinv,dcosdrk,dcosdrk);
+  /* vec3_add(dcosdrj,dcosdrk,dcosdri); */
+  /* vec3_scale(-1.0,dcosdri,dcosdri); */
+
+  // compute the derivative wrt Ri
+  // dri = -dfc*gijk*ex_delr*rik_hat;
+  // dri += fc*gijk_d*ex_delr*dcosdri;
+  // dri += fc*gijk*ex_delr_d*(rik_hat - rij_hat);
+
   /* vec3_scale(-dfc*gijk*ex_delr,rik_hat,fi); */
   /* vec3_scaleadd(fc*gijk_d*ex_delr,dcosdri,fi,fi); */
   /* vec3_scaleadd(fc*gijk*ex_delr_d,rik_hat,fi,fi); */
@@ -199,32 +294,22 @@ inline void attractive(tersoff_param_t *param, double prefactor,
   vec3_scaleadd(fc*gijk*ex_delr_d,rij_hat,fj,fj);
   vec3_scale(prefactor,fj,fj);
 
-  // compute the derivative wrt Rk
-  // drk = dfc*gijk*ex_delr*rik_hat;
-  // drk += fc*gijk_d*ex_delr*dcosdrk;
-  // drk += -fc*gijk*ex_delr_d*rik_hat;
+  /* // compute the derivative wrt Rk */
+  /* // drk = dfc*gijk*ex_delr*rik_hat; */
+  /* // drk += fc*gijk_d*ex_delr*dcosdrk; */
+  /* // drk += -fc*gijk*ex_delr_d*rik_hat; */
 
   vec3_scale(dfc*gijk*ex_delr,rik_hat,fk);
   vec3_scaleadd(fc*gijk_d*ex_delr,dcosdrk,fk,fk);
   vec3_scaleadd(-fc*gijk*ex_delr_d,rik_hat,fk,fk);
   vec3_scale(prefactor,fk,fk);
-  /* if (rank == 0 && _MYID == 0){ */
-  /*   printf("%f %f\n", dfc, fc); */
-  /*   printf("%f %f\n", gijk, gijk_d); */
-  /*   printf("%f %f\n", ex_delr, ex_delr_d); */
-  /*   //printf("%f %f\n", rikinv, cos_theta); */
-  /*   printf("%f %f %f %f\n", rsqij, delrij[0], delrij[1], delrij[2]); */
-  /*   printf("%f %f %f\n", rij_hat[0], rij_hat[1], rij_hat[2]); */
-  /*   printf("%f %f %f\n", rik_hat[0], rik_hat[1], rik_hat[2]); */
-  /*   //printf("%f %f\n", dcosdrk[0], rik_hat[0]); */
-  /*   printf("jk:%f %f\n", fj[0], fk[0]); */
-  /* } */
+
   vec3_add(fj, fk, fi);
   vec3_scale(-1.0, fi, fi);
-  /* vec3_add(fi, fj, fk); */
-  /* vec3_scale(-1.0, fk, fk); */
 }
-inline void attractive_jk(tersoff_param_t *param, double prefactor_ij, double prefactor_ik,
+
+inline void attractive_jk(tersoff_param_t *param,
+                          double prefactor_ij, double prefactor_ik,
                           double rsqij, double rsqik,
                           double *delrij, double *delrik,
                           double *fi, double *fj, double *fk)
@@ -290,7 +375,7 @@ inline void attractive_jk(tersoff_param_t *param, double prefactor_ij, double pr
     ex_delr_d_ik = param->lam3 * ex_delr_ik;
   }
   cos_theta = vec3_dot(rij_hat,rik_hat);
-  //ters_gijk(d) below
+
   double ters_c = param->c * param->c;
   double ters_d = param->d * param->d;
   double hcth = param->h - cos_theta;
@@ -313,8 +398,6 @@ inline void attractive_jk(tersoff_param_t *param, double prefactor_ij, double pr
   vec3_scaleadd(fc_ik*gijk_d*ex_delr_ik,dcosdrk,fktmp,fktmp);
   vec3_scaleadd(-fc_ik*gijk*ex_delr_d_ik,rik_hat,fktmp,fktmp);
   vec3_scale(prefactor_ij,fktmp,fk);
-  /* if (rank == 0 && _MYID == 0) */
-  /*   printf("j:%f\n", fj[0]); */
 
   vec3_scale(fc_ij*gijk_d*ex_delr_ij,dcosdrk,fktmp);
   vec3_scaleadd(fc_ij*gijk*ex_delr_d_ij,rik_hat,fktmp,fktmp);
@@ -324,20 +407,138 @@ inline void attractive_jk(tersoff_param_t *param, double prefactor_ij, double pr
   vec3_scaleadd(fc_ij*gijk_d*ex_delr_ij,dcosdrj,fjtmp,fjtmp);
   vec3_scaleadd(-fc_ij*gijk*ex_delr_d_ij,rij_hat,fjtmp,fjtmp);
   vec3_scaleadd(prefactor_ik,fjtmp,fj,fj);
-  /* if (rank == 0 && _MYID == 0) */
-  /*   printf("j:%f\n", fj[0]); */
-  /* vec3_scale(fc_ij*gijk_d*ex_delr_ij,dcosdrj,fjtmp); */
-  /* vec3_scaleadd(fc_ij*gijk*ex_delr_d_ij,rij_hat,fjtmp,fjtmp); */
-  /* vec3_scaleadd(prefactor_ik,fjtmp,fj,fj); */
 
-  /* vec3_scale(dfc_ij*gijk*ex_delr_ij,rik_hat,fktmp); */
-  /* vec3_scaleadd(fc_ij*gijk_d*ex_delr_ij,dcosdrk,fktmp,fktmp); */
-  /* vec3_scaleadd(-fc_ij*gijk*ex_delr_d_ij,rik_hat,fktmp,fktmp); */
-  /* vec3_scaleadd(prefactor_ik,fktmp,fk,fk); */
+  /* vec3_add(fj, fk, fi); */
+  /* vec3_scale(-1.0, fi, fi); */
+}
+
+inline void attractive_jk_dt(tersoff_param_t *param_ij, 
+                             tersoff_param_t *param_ik,
+                             double prefactor_ij, double prefactor_ik,
+                             double rsqij, double rsqik,
+                             double *delrij, double *delrik,
+                             double *fi, double *fj, double *fk)
+{
+  double rij_hat[3],rik_hat[3];
+  double rij,rijinv,rik,rikinv;
+
+  inv_sqrt(rsqij, rijinv);
+  rij = rsqij * rijinv;
+  vec3_scale(rijinv,delrij,rij_hat);
+
+  inv_sqrt(rsqik, rikinv);
+  rik = rsqik * rikinv;
+
+  vec3_scale(rikinv,delrik,rik_hat);
+
+  double gijk,gijk_d,cos_theta;
+  double dcosdri[3],dcosdrj[3],dcosdrk[3];
+ 
+  double ters_R_ij = param_ij->bigr;
+  double ters_D_ij = param_ij->bigd;
+  double Dinv_ij = param_ij->bigdinv;
+  double fc_ik,dfc_ik, fc_ij, dfc_ij;
+  if (rik < ters_R_ij - ters_D_ij){
+    fc_ik = 1.0;
+    dfc_ik = 0.0;
+  } else if (rik > ters_R_ij + ters_D_ij){
+    fc_ik = 0.0;
+    dfc_ik = 0.0;
+  } else {
+    fc_ik = 0.5 * (1.0 - sin_4_tersoff(MY_PI2 * (rik - ters_R_ij) * Dinv_ij));
+    dfc_ik = -(MY_PI4 * Dinv_ij) * cos_4_tersoff(MY_PI2 * (rik - ters_R_ij) * Dinv_ij);
+  }
+  double ters_R_ik = param_ik->bigr;
+  double ters_D_ik = param_ik->bigd;
+  double Dinv_ik = param_ik->bigdinv;
+  if (rij < ters_R_ik - ters_D_ik){
+    fc_ij = 1.0;
+    dfc_ij = 0.0;
+  } else if (rij > ters_R_ik + ters_D_ik){
+    fc_ij = 0.0;
+    dfc_ij = 0.0;
+  } else {
+    fc_ij = 0.5 * (1.0 - sin_4_tersoff(MY_PI2 * (rij - ters_R_ik) * Dinv_ik));
+    dfc_ij = -(MY_PI4 * Dinv_ik) * cos_4_tersoff(MY_PI2 * (rij - ters_R_ik) * Dinv_ik);
+  }
+  double tmp_ik = param_ij->lam3 * (rij-rik);
+  if (param_ij->powermint == 3) tmp_ik = tmp_ik * tmp_ik * tmp_ik;
+  double tmp_ij = param_ik->lam3 * (rik-rij);
+  if (param_ik->powermint == 3) tmp_ij = tmp_ij * tmp_ij * tmp_ij;
+
+  double ex_delr_ij, ex_delr_ik, ex_delr_d_ij, ex_delr_d_ik;
+  if (tmp_ik > 69.0776) {
+    ex_delr_ik = 1.e30;
+  } else if (tmp_ik < -69.0776) {
+    ex_delr_ik = 0.0;
+  } else {
+    ex_delr_ik = exp_4_tersoff(tmp_ik);
+  }
+  if (tmp_ij > 69.0776) {
+    ex_delr_ij = 1.e30;
+  } else if (tmp_ij < -69.0776) {
+    ex_delr_ij = 0.0;
+  } else {
+    ex_delr_ij = exp_4_tersoff(tmp_ij);
+  }
+
+  if (param_ij->powermint == 3){
+    ex_delr_d_ik = 3.0*param_ij->lam3*param_ij->lam3*param_ij->lam3 *(rij-rik)*(rij-rik)*ex_delr_ik;
+  } else {
+    ex_delr_d_ik = param_ij->lam3 * ex_delr_ik;
+  }
+  if (param_ik->powermint == 3){
+    ex_delr_d_ij = 3.0*param_ik->lam3*param_ik->lam3*param_ik->lam3 *(rij-rik)*(rij-rik)*ex_delr_ij;
+  }
+  else {
+    ex_delr_d_ij = param_ik->lam3 * ex_delr_ij;
+  }
+  cos_theta = vec3_dot(rij_hat,rik_hat);
+
+  double ters_c_ik = param_ij->c * param_ij->c;
+  double ters_d_ik = param_ij->d * param_ij->d;
+  double hcth_ik = param_ij->h - cos_theta;
+  double numerator_ik = -2.0 * ters_c_ik * hcth_ik;
+  double denominator_ik = 1.0 / (ters_d_ik + hcth_ik * hcth_ik);
+  double gijk_ik = param_ij->gamma * (1.0 + param_ij->c2divd2 - ters_c_ik * denominator_ik);
+  double gijk_ik_d = param_ij->gamma * numerator_ik * denominator_ik * denominator_ik;
+
+  double ters_c_ij = param_ik->c * param_ik->c;
+  double ters_d_ij = param_ik->d * param_ik->d;
+  double hcth_ij = param_ik->h - cos_theta;
+  double numerator_ij = -2.0 * ters_c_ij * hcth_ij;
+  double denominator_ij = 1.0 / (ters_d_ij + hcth_ij * hcth_ij);
+  double gijk_ij = param_ik->gamma * (1.0 + param_ik->c2divd2 - ters_c_ij * denominator_ij);
+  double gijk_ij_d = param_ik->gamma * numerator_ij * denominator_ij * denominator_ij;
+
+  vec3_scaleadd(-cos_theta,rij_hat,rik_hat,dcosdrj);
+  vec3_scale(rijinv,dcosdrj,dcosdrj);
+  vec3_scaleadd(-cos_theta,rik_hat,rij_hat,dcosdrk);
+  vec3_scale(rikinv,dcosdrk,dcosdrk);
+
+  double fjtmp[3], fktmp[3];
+  vec3_scale(fc_ik*gijk_ik_d*ex_delr_ik,dcosdrj,fjtmp);
+  vec3_scaleadd(fc_ik*gijk_ik*ex_delr_d_ik,rij_hat,fjtmp,fjtmp);
+  vec3_scale(prefactor_ij,fjtmp,fj);
+
+  vec3_scale(dfc_ik*gijk_ik*ex_delr_ik,rik_hat,fktmp);
+  vec3_scaleadd(fc_ik*gijk_ik_d*ex_delr_ik,dcosdrk,fktmp,fktmp);
+  vec3_scaleadd(-fc_ik*gijk_ik*ex_delr_d_ik,rik_hat,fktmp,fktmp);
+  vec3_scale(prefactor_ij,fktmp,fk);
+
+  vec3_scale(fc_ij*gijk_ij_d*ex_delr_ij,dcosdrk,fktmp);
+  vec3_scaleadd(fc_ij*gijk_ij*ex_delr_d_ij,rik_hat,fktmp,fktmp);
+  vec3_scaleadd(prefactor_ik,fktmp,fk,fk);
+
+  vec3_scale(dfc_ij*gijk_ij*ex_delr_ij,rik_hat,fjtmp);
+  vec3_scaleadd(fc_ij*gijk_ij_d*ex_delr_ij,dcosdrj,fjtmp,fjtmp);
+  vec3_scaleadd(-fc_ij*gijk_ij*ex_delr_d_ij,rij_hat,fjtmp,fjtmp);
+  vec3_scaleadd(prefactor_ik,fjtmp,fj,fj);
 
   vec3_add(fj, fk, fi);
   vec3_scale(-1.0, fi, fi);
 }
+
 #endif
 #define THIRD 0.3333333333333333333
 inline void v_tally3rd(int i, int vflag_global, int vflag_atom,
@@ -423,7 +624,7 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
 }
 #endif
 #ifdef CPE
-#define LWPF_KERNELS _K(ALL) K(JLOOP) K(ATTRACTIVE)
+#define LWPF_KERNELS _K(ALL) K(JLOOP) K(JKLOOP) K(JKLOAD) K(ATTRACTIVE) K(ATTRACTIVE_JK)
 #define LWPF_UNIT U(TERSOFF)
 #include "lwpf.h"
 #define ISTEP 64
@@ -451,8 +652,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int *ilist = l_pm.ilist;
   int *firstshort = l_pm.firstshort;
   short_neigh_t *shortlist = l_pm.shortlist;
-  /* int *map = l_pm.map; */
-  /* int (*elem2param)[nelements][nelements] = l_pm.elem2param; */
+
   int map[ntypes + 1];
   int elem2param[nelements][nelements][nelements];
   tersoff_param_t params[nparams];
@@ -461,16 +661,16 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   pe_get(l_pm.elem2param, elem2param, sizeof(int) * nep3);
   pe_get(l_pm.params, params, sizeof(tersoff_param_t) * nparams);
   pe_syn();
-  //tersoff_param_t *params = l_pm.params;
+
   double (*x)[3] = l_pm.x;
   double (*f)[3] = l_pm.f;
   double (*vatom)[6] = l_pm.vatom;
   double *eatom = l_pm.eatom;
-  //double *virial = l_pm.virial;
+
   int *type = l_pm.type;
   int ii;
   int ist, ied;
-  double xi[ISTEP][3], fi[ISTEP][3];
+  double fi[ISTEP][3];
   int ti[ISTEP], fs[ISTEP + 1];
   short_neigh_t js[SNSTEP], ks[SNSTEP];
   doublev4 virial_v4[2];
@@ -484,7 +684,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       ied = inum;
     int isz = ied - ist;
     int i;
-    pe_get(x + ist, xi, sizeof(double) * 3 * isz);
+    //pe_get(x + ist, xi, sizeof(double) * 3 * isz);
     pe_get(f + ist, fi, sizeof(double) * 3 * isz);
     pe_get(firstshort + ist, fs, sizeof(int) * (isz + 1));
     pe_get(type + ist, ti, sizeof(int) * isz);
@@ -493,9 +693,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     for (i = ist; i < ied; i ++){
       int ioff = i - ist;
       int itype = map[ti[ioff]];
-      double xtmp = xi[ioff][0];
-      double ytmp = xi[ioff][1];
-      double ztmp = xi[ioff][2];
       short_neigh_t *jlist_short = shortlist + fs[ioff];
       int jnum = fs[ioff + 1] - fs[ioff];
       double fxtmp = 0;
@@ -520,10 +717,9 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         double prefactor_ij = jshort->prefactor_fwd;
         double prefactor_ji = jshort->prefactor_rev;
 
-        short_neigh_t *iklist_short = js;//shortlist + fs[ioff];
+        short_neigh_t *iklist_short = js;
         int iknum = fs[ioff + 1] - fs[ioff];
-        /* short_neigh_t *iklist_short = js; */
-        /* int iknum = jnum; */
+
         int kk;
         for (kk = 0; kk < iknum; kk ++){
           if (jj == kk) continue;
@@ -537,13 +733,14 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           double r2ik = kshort->r2;
           double tfi[3], tfj[3], tfk[3];
           lwpf_start(ATTRACTIVE);
-          attractive(params + iparam_ijk, prefactor_ij, r2ij, r2ik, dij, dik, tfi, tfj, tfk);
+          attractive_i(params + iparam_ijk, prefactor_ij, r2ij, r2ik, dij, dik, tfi, tfj, tfk);
           lwpf_stop(ATTRACTIVE);
           fxtmp += tfi[0];
           fytmp += tfi[1];
           fztmp += tfi[2];
           if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, tfj, tfk, dij, dik, virial, vatom);
         }
+        lwpf_start(JKLOAD);
         int fsj[2];
         pe_get(firstshort + j, fsj, sizeof(int) * 2);
         pe_syn();
@@ -551,10 +748,12 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         int jknum = fsj[1] - fsj[0];
         pe_get(jklist_short, ks, sizeof(short_neigh_t) * jknum);
         pe_syn();
+        lwpf_stop(JKLOAD);
+        lwpf_start(JKLOOP);
         for (kk = 0; kk < jknum; kk ++){
           short_neigh_t *kshort = ks + kk;
           if (kshort->idx == i) continue;
-          int ktype = kshort->type;//map[type[k]];
+          int ktype = kshort->type;
           int iparam_jik = elem2param[jtype][itype][ktype];
           int iparam_jki = elem2param[jtype][ktype][itype];
           double djk[3];
@@ -564,36 +763,18 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           double r2jk = kshort->r2;
           double ffi[3], ffj[3], ffk[3];
           double tfi[3], tfj[3], tfk[3];
-          double prefactor_jk = kshort->prefactor_fwd;//[firstshort[j] + kk][0];
-          /* if (_MYID == 0) */
-          /*   printf("%d %d\n", iparam_jik, iparam_jki); */
-          /* if (rank == 0 && _MYID == 0) */
-          /*   printf("%f %f %f %f\n", r2ij, dji[0], dji[1], dji[2]); */
-          lwpf_start(ATTRACTIVE);
-          attractive_jk(params + iparam_jik, prefactor_ji, prefactor_jk, r2ij, r2jk, dji, djk, tfj, tfi, tfk);
-          lwpf_stop(ATTRACTIVE);
-          /* lwpf_start(ATTRACTIVE); */
-          /* attractive(params + iparam_jik, prefactor_ji, r2ij, r2jk, dji, djk, ffj, ffi, ffk); */
-          /* lwpf_stop(ATTRACTIVE); */
-          /* /\* fxtmp += ffi[0]; *\/ */
-          /* /\* fytmp += ffi[1]; *\/ */
-          /* /\* fztmp += ffi[2]; *\/ */
+          double prefactor_jk = kshort->prefactor_fwd;
 
-          /* double rfi[3], rfj[3], rfk[3]; */
-          /* lwpf_start(ATTRACTIVE); */
-          /* attractive(params + iparam_jki, prefactor_jk, r2jk, r2ij, djk, dji, rfj, rfk, rfi); */
-          /* lwpf_stop(ATTRACTIVE); */
+          lwpf_start(ATTRACTIVE_JK);
+          attractive_jk_dt(params + iparam_jik, params + iparam_jki, prefactor_ji, prefactor_jk, r2ij, r2jk, dji, djk, tfj, tfi, tfk);
+          lwpf_stop(ATTRACTIVE_JK);
           fxtmp += tfi[0];
           fytmp += tfi[1];
           fztmp += tfi[2];
 
-          if (_MYID == 0 && l_pm.rank == 0){
-            //printf("%f %f %f\n", ffi[0], rfi[0], tfi[0]);
-          }
-          /* vec3_add(ffi, rfi, ffi); */
-          /* vec3_add(ffk, rfk, ffk); */
           if (vflag_either) v_tally_jk(i, vflag_global, vflag_atom, tfk, tfi, djk, dji, virial, vatom);
         }
+        lwpf_stop(JKLOOP);
       }
       fi[ioff][0] += fxtmp;
       fi[ioff][1] += fytmp;
