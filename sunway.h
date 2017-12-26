@@ -62,8 +62,11 @@ extern "C"{
       }
       if ((_ROW & i) == 0){
         for (j = 0; j < len; j ++){
-          asm("getc %0\n" : "=r"(tmp));
-          arr[j] += tmp;
+          asm(
+              "getc %0\n\t"
+              "vaddd %0, %1, %1\n\t"
+              : "=r"(tmp), "+r"(arr[j]));
+          //arr[j] += tmp;
         }
       }
       athread_syn(COL_SCOPE, 0xff);
@@ -77,8 +80,12 @@ extern "C"{
         }
         if ((_COL & i) == 0){
           for (j = 0; j < len; j ++){
-            asm("getr %0\n" : "=r"(tmp));
-            arr[j] += tmp;
+            /* asm("getr %0\n" : "=r"(tmp)); */
+            /* arr[j] += tmp; */
+            asm(
+                "getr %0\n\t" 
+                "vaddd %0, %1, %1\n\t"
+                : "=r"(tmp), "+r"(arr[j]));
           }
         }
       }

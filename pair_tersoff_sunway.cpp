@@ -422,8 +422,9 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   //       fxtmp += fi[0];
   //       fytmp += fi[1];
   //       fztmp += fi[2];
-  //       if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fj, fk, dij, dik);
+  //       //if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fj, fk, dij, dik);
   //     }
+
   //     klist_short = shortlist + firstshort[j];
   //     knum = firstshort[j + 1] - firstshort[j];
   //     for (kk = 0; kk < knum; kk ++){
@@ -441,30 +442,38 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   //       fxtmp += fi[0];
   //       fytmp += fi[1];
   //       fztmp += fi[2];
-  //       if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fi, fk, dji, djk);
+  //       //if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fi, fk, dji, djk);
   //       double prefactor_jk = kshort->prefactor_fwd;//[firstshort[j] + kk][0];
 
   //       attractive(params + iparam_jki, prefactor_jk, r2jk, r2ij, djk, dji, fj, fk, fi);
   //       fxtmp += fi[0];
   //       fytmp += fi[1];
   //       fztmp += fi[2];
-  //       if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fk, fi, djk, dji);
+  //       //if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fk, fi, djk, dji);
   //     }
   //   }
-  //   f[i][0] += fxtmp;
-  //   f[i][1] += fytmp;
-  //   f[i][2] += fztmp;
+  //   // f[i][0] += fxtmp;
+  //   // f[i][1] += fytmp;
+  //   // f[i][2] += fztmp;
+  //   // if (i < 64 && comm->me == 2)
+  //   //   printf("%d %f %f %f\n", i, fxtmp, fytmp, fztmp);
   // }
   pair_tersoff_compute_attractive(&pm);
+
   GPTLstop("attractive");
-  if (eflag && eflag_global){
+  if (eflag_global){
     eng_vdwl += pm.eng_vdwl;
     eng_coul += pm.eng_coul;
   }
-  if (vflag && vflag_global){
-    for (i = 0; i < 6; i ++)
+  //printf("%d %d\n", vflag_either, vflag_global);
+  if (vflag_global){
+    for (i = 0; i < 6; i ++){
       virial[i] += pm.virial[i];
+    }
   }
+  
+  //printf("%d %f\n", comm->me, virial[0]);
+
   if (vflag_fdotr) virial_fdotr_compute();
   //memory->destroy(prefactor);
   memory->destroy(firstshort);
