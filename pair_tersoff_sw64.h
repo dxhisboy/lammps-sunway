@@ -45,6 +45,7 @@ extern "C"{
     int eflag_either, vflag_either;
   } pair_tersoff_compute_param_t;
   void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm);
+  void pair_tersoff_compute_zeta(pair_tersoff_compute_param_t *pm);
 #ifdef __cplusplus
 }
 #endif

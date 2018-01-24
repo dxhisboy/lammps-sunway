@@ -52,7 +52,7 @@ void pair_lj_cut_sunway_compute(pair_lj_cut_compute_param_t *pm){
 #include "lwpf.h"
 #include <dma.h>
 #include <math.h>
-inline void ev_tally_full(pair_lj_cut_compute_param_t *pm, int i, double evdwl, double ecoul, double fpair,
+static inline void ev_tally_full(pair_lj_cut_compute_param_t *pm, int i, double evdwl, double ecoul, double fpair,
                    double delx, double dely, double delz,
                    double *eng_coul, double *eng_vdwl, double *virial,
                    double *eatom, double (*vatom)[6])
@@ -496,10 +496,7 @@ void pair_lj_cut_sunway_compute_para_vec(pair_lj_cut_compute_param_t *pm){
       doublev4 vi_v4[6];
       vi_v4[0] = vi_v4[1] = vi_v4[2] = 0;
       vi_v4[3] = vi_v4[4] = vi_v4[5] = 0;
-      //fi[ioff][0] = fi[ioff][1] = fi[ioff][2] = 0;
-      //ei[ioff] = 0;
-      //vi[ioff][0] = vi[ioff][1] = vi[ioff][2] = 0;
-      //vi[ioff][3] = vi[ioff][4] = vi[ioff][5] = 0;
+
       doublev4 xi_v4[3];
       xi_v4[0] = xi[ioff][0];
       xi_v4[1] = xi[ioff][1];
@@ -540,6 +537,7 @@ void pair_lj_cut_sunway_compute_para_vec(pair_lj_cut_compute_param_t *pm){
             }
             simd_load(xjv[jjj], j_cache[line] + (j & JCACHE_MMASK));
           }
+          
           //lwpf_stop(CACHE);
           //lwpf_start(VECPACK);
           {
@@ -577,18 +575,16 @@ void pair_lj_cut_sunway_compute_para_vec(pair_lj_cut_compute_param_t *pm){
           
           doublev4 msk_v4 = simd_vfcmple(jlist_cutsq_v4, rsq_v4);
           doublev4 r2inv_v4 = v4_1 / rsq_v4;
-          //r2inv_v4 = simd_vsellt(msk_v4, r2inv_v4, v4_0);
           doublev4 r6inv_v4 = r2inv_v4 * r2inv_v4 * r2inv_v4;
           doublev4 forcelj_v4 = r6inv_v4 * (jlist_lj_v4[0] * r6inv_v4 - jlist_lj_v4[1]);
           doublev4 fpair_v4 = jlist_flj_v4 * forcelj_v4 * r2inv_v4;
           fpair_v4 = simd_vselle(msk_v4, fpair_v4, v4_0);
-          //delx_v4 = simd_vsellt(msk_v4, delx_v4, v4_0);
           
           fi_v4[0] += delx_v4 * fpair_v4;
           fi_v4[1] += dely_v4 * fpair_v4;
           fi_v4[2] += delz_v4 * fpair_v4;
-          doublev4 v_fac = simd_vselle(msk_v4, v4_half, v4_0);
           if (l_pm.evflag) {
+            doublev4 v_fac = simd_vselle(msk_v4, v4_half, v4_0);
             if (l_pm.eflag_either){
               doublev4 evdwl_v4 = r6inv_v4 * (jlist_lj_v4[2] * r6inv_v4 - jlist_lj_v4[3]) - jlist_offset_v4;
               evdwl_v4 *= jlist_flj_v4;

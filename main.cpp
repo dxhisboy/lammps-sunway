@@ -50,7 +50,7 @@ int main(int argc, char **argv)
   feenableexcept(FE_INVALID);
   feenableexcept(FE_OVERFLOW);
 #endif
-
+  printf("%d\n", getpid());
 #ifdef LAMMPS_EXCEPTIONS
   try {
     LAMMPS *lammps = new LAMMPS(argc,argv,MPI_COMM_WORLD);

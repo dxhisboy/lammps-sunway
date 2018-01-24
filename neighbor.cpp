@@ -726,6 +726,18 @@ int Neighbor::init_pair()
   
   int flag;
   for (i = 0; i < nrequest; i++) {
+    flag = choose_pair(requests[i]);
+    lists[i]->pair_method = flag;
+    if (flag < 0){
+      if (requests[i]->halffull){
+        requests[i]->halffull = 0;
+        flag = choose_pair(requests[i]);
+        lists[i]->pair_method = flag;
+      }
+    }
+    if (flag < 0) 
+      error->all(FLERR,"Requested neighbor pair method does not exist");
+
     flag = choose_bin(requests[i]);
     lists[i]->bin_method = flag;
     if (flag < 0) 
@@ -736,10 +748,6 @@ int Neighbor::init_pair()
     if (flag < 0) 
       error->all(FLERR,"Requested neighbor stencil method does not exist");
 
-    flag = choose_pair(requests[i]);
-    lists[i]->pair_method = flag;
-    if (flag < 0) 
-      error->all(FLERR,"Requested neighbor pair method does not exist");
   }
 
   // instantiate unique Bin,Stencil classes in neigh_bin & neigh_stencil vecs

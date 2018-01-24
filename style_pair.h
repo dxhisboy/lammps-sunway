@@ -64,6 +64,7 @@
 #include "pair_morse.h"
 #include "pair_nb3b_harmonic.h"
 #include "pair_polymorphic.h"
+#include "pair_reaxc_sunway.h"
 #include "pair_rebo.h"
 #include "pair_soft.h"
 #include "pair_sw.h"
