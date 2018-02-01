@@ -32,8 +32,8 @@
     typedef double rvec4[4];
 
     // import LAMMPS' definition of tagint and bigint
-    typedef LAMMPS_NS::tagint rc_tagint;
-    typedef LAMMPS_NS::bigint rc_bigint;
+    typedef int rc_tagint;
+    typedef long rc_bigint;
 
     typedef struct
     {

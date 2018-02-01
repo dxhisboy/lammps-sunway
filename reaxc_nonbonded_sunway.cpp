@@ -187,25 +187,6 @@ namespace REAXC_SUNWAY_NS{
           if( control->virial == 0 ) {
             rvec_ScaledAdd( workspace->f[i], -(CEvd + CEclmb), nbr_pj->dvec );
             rvec_ScaledAdd( workspace->f[j], +(CEvd + CEclmb), nbr_pj->dvec );
-
-            // if (i == 0){
-            //   double *f = workspace->f[i];
-            //   double *d = nbr_pj->dvec;;
-            //   double t[3];
-            //   rvec_Copy(t, system->x[j]);
-            //   rvec_ScaledAdd(t, -1, system->x[i]);
-            //   printf("%d %f %f %f %f\n", j, -(CEvd + CEclmb), t[0], t[1], t[2]);
-            //   printf("%d %f %f %f %f\n", j, -(CEvd + CEclmb), d[0], d[1], d[2]);
-            //   rvec_Scale(t, -(CEvd +CEclmb), nbr_pj->dvec);
-            //   printf("%d %f %f %f %f\n", j, -(CEvd + CEclmb), t[0], t[1], t[2]);
-            //   printf("%d %f %f %f %f\n", j, -(CEvd + CEclmb), f[0], f[1], f[2]);
-            // }
-            // double *f = workspace->f[i];
-            // if (i == 0)
-            //   printf("%d %f %f %f %f\n", j, -(CEvd + CEclmb), f[0], f[1], f[2]);
-
-            // if (i == 0 || j == 0)
-            //   printf("%5d %5d %f\n", i, j, -(CEvd + CEclmb));
           }
           else { /* NPT, iNPT or sNPT */
             rvec_Scale( temp, CEvd + CEclmb, nbr_pj->dvec );

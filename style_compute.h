@@ -44,6 +44,7 @@
 #include "compute_reduce.h"
 #include "compute_reduce_region.h"
 #include "compute_slice.h"
+#include "compute_spec_atom.h"
 #include "compute_spec_atom_sunway.h"
 #include "compute_stress_atom.h"
 #include "compute_temp.h"
