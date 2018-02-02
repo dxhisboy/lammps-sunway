@@ -20,8 +20,6 @@
 #include "respa.h"
 #include "error.h"
 #include "sunway.h"
-#include "gptl.h"
-#include "fix_nve_sw64.h"
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
@@ -63,6 +61,12 @@ void FixNVESunway::init()
 /* ----------------------------------------------------------------------
    allow for both per-type and per-atom mass
 ------------------------------------------------------------------------- */
+extern "C"{
+  void fix_nve_initial_integrate_sunway_compute(fix_nve_param_t *pm);
+  void fix_nve_final_integrate_sunway_compute(fix_nve_param_t *pm);
+}
+
+
 
 void FixNVESunway::initial_integrate(int vflag)
 {
@@ -78,23 +82,73 @@ void FixNVESunway::initial_integrate(int vflag)
   int *type = atom->type;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
+
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-  GPTLstart("fix nve initial integratesunway");
+
+
   fix_nve_param_t pm;
-  pm.x = (double(*)[3])(void*)atom->x[0];
-  pm.v = (double(*)[3])(void*)atom->v[0];
-  pm.f = (double(*)[3])(void*)atom->f[0];
+
+
+  pm.x = atom->x;
+  pm.v = atom->v;
+  pm.f = atom->f;
   pm.rmass = atom->rmass;
   pm.mass = atom->mass;
-  pm.dtv = dtv;
-  pm.dtf = dtf;
   pm.type = atom->type;
   pm.mask = atom->mask;
   pm.nlocal = nlocal;
   pm.groupbit = groupbit;
-  pm.ntypes = atom->ntypes;
-  fix_nve_initial_integrate(&pm);
-  GPTLstop("fix nve initial integratesunway");
+  pm.dtv = dtv;
+  pm.dtf = dtf;
+
+  double st = -MPI_Wtime();
+  fix_nve_initial_integrate_sunway_compute(&pm);
+  st += MPI_Wtime();
+//  printf("the time %.10f\n",st);
+//
+//  int max = 0,min = 0xffff;
+//  for(int i = 0;i < nlocal;i++)
+//  {
+//    if(max < type[i])
+//      max = type[i];
+//    if(min > type[i])
+//      min = type[i];
+//  }
+//
+//  printf("ntype = %d\n",ntype);
+//  printf("max = %d ,min = %d\n",max,min);
+//
+//  st = -MPI_Wtime();
+//  if (rmass) {
+//
+//    for (int i = 0; i < nlocal; i++)
+//      if (mask[i] & groupbit) {
+//        dtfm = dtf / rmass[i];
+//
+//        v[i][0] += dtfm * f[i][0];
+//        v[i][1] += dtfm * f[i][1];
+//        v[i][2] += dtfm * f[i][2];
+//        x[i][0] += dtv * v[i][0];
+//        x[i][1] += dtv * v[i][1];
+//        x[i][2] += dtv * v[i][2];
+//      }
+//
+//  } else {
+//    for (int i = 0; i < nlocal; i++)
+//      if (mask[i] & groupbit) {
+//
+//        dtfm = dtf / mass[type[i]];
+//        v[i][0] += dtfm * f[i][0];
+//        v[i][1] += dtfm * f[i][1];
+//        v[i][2] += dtfm * f[i][2];
+//        x[i][0] += dtv * v[i][0];
+//        x[i][1] += dtv * v[i][1];
+//        x[i][2] += dtv * v[i][2];
+//      }
+//  }
+//  
+//  st += MPI_Wtime();
+//  printf("the original time %.10f\n",st);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -114,22 +168,43 @@ void FixNVESunway::final_integrate()
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  GPTLstart("fix nve final integrate sunway");
   fix_nve_param_t pm;
-  pm.x = (double(*)[3])(void*)atom->x[0];
-  pm.v = (double(*)[3])(void*)atom->v[0];
-  pm.f = (double(*)[3])(void*)atom->f[0];
+
+
+  pm.x = atom->x;
+  pm.v = atom->v;
+  pm.f = atom->f;
   pm.rmass = atom->rmass;
   pm.mass = atom->mass;
-  pm.dtv = dtv;
-  pm.dtf = dtf;
   pm.type = atom->type;
   pm.mask = atom->mask;
   pm.nlocal = nlocal;
   pm.groupbit = groupbit;
-  pm.ntypes = atom->ntypes;
-  fix_nve_final_integrate(&pm);
-  GPTLstop("fix nve final integrate sunway");
+  pm.dtv = dtv;
+  pm.dtf = dtf;
+
+  fix_nve_final_integrate_sunway_compute(&pm);
+
+//
+//  if (rmass) {
+//    for (int i = 0; i < nlocal; i++)
+//      if (mask[i] & groupbit) {
+//        dtfm = dtf / rmass[i];
+//
+//        v[i][0] += dtfm * f[i][0];
+//        v[i][1] += dtfm * f[i][1];
+//        v[i][2] += dtfm * f[i][2];
+//      }
+//
+//  } else {
+//    for (int i = 0; i < nlocal; i++)
+//      if (mask[i] & groupbit) {
+//        dtfm = dtf / mass[type[i]];
+//        v[i][0] += dtfm * f[i][0];
+//        v[i][1] += dtfm * f[i][1];
+//        v[i][2] += dtfm * f[i][2];
+//      }
+//  }
 }
 
 /* ---------------------------------------------------------------------- */

@@ -50,6 +50,7 @@
 #include "pair_lj_cut_coul_dsf.h"
 #include "pair_lj_cut_coul_long.h"
 #include "pair_lj_cut_coul_msm.h"
+#include "pair_lj_cut_full.h"
 #include "pair_lj_cut_sunway.h"
 #include "pair_lj_cut_tip4p_cut.h"
 #include "pair_lj_cut_tip4p_long.h"

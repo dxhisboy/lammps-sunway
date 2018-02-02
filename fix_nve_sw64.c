@@ -1,273 +1,155 @@
 #include "sunway.h"
-#include <stdlib.h>
-#include <simd.h>
-#include <stdio.h>
-
+#include "fix_nve_sw64.h"
 #ifdef MPE
-extern SLAVE_FUN(fix_nve_initial_integrate_sunway_compute_para)(fix_nve_param_t *pm);
-extern SLAVE_FUN(fix_nve_final_integrate_sunway_compute_para)(fix_nve_param_t *pm);
-
-
-void fix_nve_initial_integrate_sunway_compute(fix_nve_param_t *pm){
+extern SLAVE_FUN(fix_nve_initial_integrate_para)(fix_nve_param_t *);
+void fix_nve_initial_integrate(fix_nve_param_t *pm){
   if (athread_idle() == 0)
     athread_init();
-  athread_spawn(fix_nve_initial_integrate_sunway_compute_para, pm);
+  athread_spawn(fix_nve_initial_integrate_para, pm);
+  athread_join();
+}
+extern SLAVE_FUN(fix_nve_final_integrate_para)(fix_nve_param_t *);
+void fix_nve_final_integrate(fix_nve_param_t *pm){
+  if (athread_idle() == 0)
+    athread_init();
+  athread_spawn(fix_nve_final_integrate_para, pm);
   athread_join();
 }
 
-
-void fix_nve_final_integrate_sunway_compute(fix_nve_param_t *pm){
-  if (athread_idle() == 0)
-    athread_init();
-  athread_spawn(fix_nve_final_integrate_sunway_compute_para, pm);
-  athread_join();
-}
 #endif
-
-
-
 #ifdef CPE
-#define BLK_SIZE 512
-#define Cach_Size 16
-#define Cach_Num 16
-
-void fix_nve_final_integrate_sunway_compute_para(fix_nve_param_t *pm){
+#define ISTEP 512
+#define NCOMP 64
+void fix_nve_initial_integrate_para(fix_nve_param_t *pm){
   pe_init();
-  int i,j,k,g,h,ii;
-  fix_nve_param_t local_pm;
-  pe_get(pm, &local_pm, sizeof(fix_nve_param_t));
+  fix_nve_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(fix_nve_param_t));
   pe_syn();
-
-  double x[BLK_SIZE * 3], v[BLK_SIZE * 3], f[BLK_SIZE * 3];
-  double rmass[BLK_SIZE], mass[Cach_Num][Cach_Size];
-  int mask[BLK_SIZE], type[BLK_SIZE], mass_id[Cach_Num];
-
-  int mass_num = -1;
-  for(i = 0;i < Cach_Num;i++)
-    mass_id[i] = -1;
-  int my_id = athread_get_id(-1);
-
-  int nlocal = local_pm.nlocal;
-  int groupbit = local_pm.groupbit;
-  double dtv = local_pm.dtv; 
-  double dtf = local_pm.dtf;
-
-
-  int step_size = (nlocal + 63) / 64;
-  if(step_size > BLK_SIZE)
-    step_size = BLK_SIZE;
-
-  if(local_pm.rmass)
-  {
-    for(ii = my_id * step_size; ii < nlocal; ii += 64 * step_size)
-    {
-      if(step_size + ii > nlocal)
-        step_size = nlocal - ii;
-      if (step_size <= 0)
-        continue;
-      pe_get( local_pm.v[ii], v, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( local_pm.f[ii], f, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( &local_pm.rmass[ii], rmass, sizeof(double) * step_size);
-      pe_syn();
-      pe_get( &local_pm.mask[ii], mask, sizeof(int) * step_size);
-      pe_syn();
-
-
-      for(i = 0;i < step_size; i++)
-      {
-        if(mask[i] & groupbit)
-        {
-          int pi_3 = 3 * i;
+  double (*x)[3] = l_pm.x, (*v)[3] = l_pm.v, (*f)[3] = l_pm.f;
+  double *rmass = l_pm.rmass;
+  double dtv = l_pm.dtv, dtf = l_pm.dtf;
+  int nlocal = l_pm.nlocal, groupbit = l_pm.groupbit;
+  int *type = l_pm.type, *mask = l_pm.mask;
+  int i, ist;
+  int mi[ISTEP];
+  int ti[ISTEP];
+  double vi[ISTEP][3];
+  double xi[ISTEP][3];
+  double fi[ISTEP][3];
+  if (_MYID >= NCOMP) return;
+  if (rmass) {
+    for (ist = _MYID * ISTEP; ist < nlocal; ist += NCOMP * ISTEP){
+      int ied = ist + ISTEP;
+      if (ied > nlocal) ied = nlocal;
+      int isz = ied - ist;
+      for(i = ist; i < ied; i ++){
+        if (mask[i] & groupbit) {
           double dtfm = dtf / rmass[i];
-          v[pi_3 + 0] += dtfm * f[pi_3 + 0];
-          v[pi_3 + 1] += dtfm * f[pi_3 + 1];
-          v[pi_3 + 2] += dtfm * f[pi_3 + 2];
+          v[i][0] += dtfm * f[i][0];
+          v[i][1] += dtfm * f[i][1];
+          v[i][2] += dtfm * f[i][2];
+          x[i][0] += dtv * v[i][0];
+          x[i][1] += dtv * v[i][1];
+          x[i][2] += dtv * v[i][2];
         }
       }
     }
-    
-    pe_put( local_pm.v[ii], v, sizeof(double) * step_size * 3);
+  } else {
+    double mass[l_pm.ntypes + 1];
+    pe_get(l_pm.mass, mass, (l_pm.ntypes + 1) * sizeof(double));
     pe_syn();
-  }
-  else
-  {
-    for(ii = step_size * my_id; ii < nlocal; ii += step_size * 64)
-    {
-      if(step_size + ii > nlocal)
-        step_size = nlocal - ii;
-      if (step_size <= 0)
-        continue;
-
-      pe_get( local_pm.v[ii], v, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( local_pm.f[ii], f, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( &local_pm.type[ii], type, sizeof(int) * step_size);
-      pe_syn();
-      pe_get( &local_pm.mask[ii], mask, sizeof(int) * step_size);
+    double dtfmt[l_pm.ntypes + 1];
+    for (i = 0; i <= l_pm.ntypes; i ++)
+      dtfmt[i] = dtf / mass[i];
+    for (ist = _MYID * ISTEP; ist < nlocal; ist += NCOMP * ISTEP){
+      int ied = ist + ISTEP;
+      if (ied > nlocal) ied = nlocal;
+      int isz = ied - ist;
+      pe_get(x[ist], xi[0], isz * 3 * sizeof(double));
+      pe_get(v[ist], vi[0], isz * 3 * sizeof(double));
+      pe_get(f[ist], fi[0], isz * 3 * sizeof(double));
+      pe_get(mask + ist, mi, isz * sizeof(int));
+      pe_get(type + ist, ti, isz * sizeof(int));
       pe_syn();
 
-//
-//
-      for(i = 0;i < step_size; i++)
-      {
-        if(mask[i] & groupbit)
-        {
-          
-          int pi_3 = 3 * i;
-          int TP = type[i];
-
-          int mass_num_id = (15) & (TP >> 4);
-
-          if(mass_id[mass_num_id] != TP >> 4)
-          {
-
-            mass_id[mass_num_id] = TP >> 4;
-            pe_get( &local_pm.mass[mass_id[mass_num_id] << 4], mass[mass_num_id], sizeof(double) * Cach_Size);
-            pe_syn();
-
-          }
-
-          double dtfm = dtf / mass[mass_num_id][type[i]&(15)];
-          v[pi_3 + 0] += dtfm * f[pi_3 + 0];
-          v[pi_3 + 1] += dtfm * f[pi_3 + 1];
-          v[pi_3 + 2] += dtfm * f[pi_3 + 2];
+      for(i = 0; i < isz; i ++){
+        if (mi[i] & groupbit) {
+          double dtfm = dtfmt[ti[i]];
+          vi[i][0] += dtfm * fi[i][0];
+          vi[i][1] += dtfm * fi[i][1];
+          vi[i][2] += dtfm * fi[i][2];
+          xi[i][0] += dtv * vi[i][0];
+          xi[i][1] += dtv * vi[i][1];
+          xi[i][2] += dtv * vi[i][2];
         }
       }
-      pe_put( local_pm.v[ii], v, sizeof(double) * step_size * 3);
-      pe_syn();
-
-    }
-
-  }
-
-}
-
-
-void fix_nve_initial_integrate_sunway_compute_para(fix_nve_param_t *pm){
-  
-  pe_init();
-  int i,j,k,g,h,ii;
-  fix_nve_param_t local_pm;
-  pe_get(pm, &local_pm, sizeof(fix_nve_param_t));
-  pe_syn();
-
-
-  double x[BLK_SIZE * 3], v[BLK_SIZE * 3], f[BLK_SIZE * 3];
-  double rmass[BLK_SIZE], mass[Cach_Num][Cach_Size];
-  int mask[BLK_SIZE], type[BLK_SIZE], mass_id[Cach_Num];
-
-  int mass_num = -1;
-  for(i = 0;i < Cach_Num;i++)
-    mass_id[i] = -1;
-  int my_id = athread_get_id(-1);
-
-  int nlocal = local_pm.nlocal;
-  int groupbit = local_pm.groupbit;
-  double dtv = local_pm.dtv; 
-  double dtf = local_pm.dtf;
-
-
-  int step_size = (nlocal + 63) / 64;
-  if(step_size > BLK_SIZE)
-    step_size = BLK_SIZE;
-
-
-
-  if(local_pm.rmass)
-  {
-    for(ii = my_id * step_size; ii < nlocal; ii += 64 * step_size)
-    {
-      if(step_size + ii > nlocal)
-        step_size = nlocal - ii;
-      if (step_size <= 0)
-        continue;
-      pe_get(local_pm.v[ii], v, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get(local_pm.f[ii], f, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get(local_pm.x[ii], x, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get(&local_pm.rmass[ii], rmass, sizeof(double) * step_size);
-      pe_syn();
-      pe_get(&local_pm.mask[ii], mask, sizeof(int) * step_size);
-      pe_syn();
-
-      for(i = 0;i < step_size; i++)
-      {
-        if(mask[i] & groupbit)
-        {
-          int pi_3 = 3 * i;
-          double dtfm = dtf / rmass[i];
-          v[pi_3 + 0] += dtfm * f[pi_3 + 0];
-          v[pi_3 + 1] += dtfm * f[pi_3 + 1];
-          v[pi_3 + 2] += dtfm * f[pi_3 + 2];
-
-          x[pi_3 + 0] += dtv * v[pi_3 + 0]; 
-          x[pi_3 + 1] += dtv * v[pi_3 + 1]; 
-          x[pi_3 + 2] += dtv * v[pi_3 + 2]; 
-
-        }
-      }
-    }
-    
-    pe_put( local_pm.v[ii], v, sizeof(double) * step_size * 3);
-    pe_syn();
-    pe_put( local_pm.x[ii], x, sizeof(double) * step_size * 3);
-    pe_syn();
-  }
-  else
-  {
-    for(ii = step_size * my_id; ii < nlocal; ii += step_size * 64)
-    {
-      if(step_size + ii > nlocal)
-        step_size = nlocal - ii;
-      if (step_size <= 0)
-        continue;
-      pe_get( local_pm.v[ii], v, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( local_pm.f[ii], f, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( local_pm.x[ii], x, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_get( &local_pm.type[ii], type, sizeof(int) * step_size);
-      pe_syn();
-      pe_get( &local_pm.mask[ii], mask, sizeof(int) * step_size);
-      pe_syn();
-
-      for(i = 0;i < step_size; i++)
-      {
-        if(mask[i] & groupbit)
-        {
-          int pi_3 = 3 * i;
-          int TP = type[i];
-          int mass_num_id = (15) & (TP >> 4);
-
-          if(mass_id[mass_num_id] != TP >> 4)
-          {
-            mass_id[mass_num_id] = TP >> 4;
-            pe_get( &local_pm.mass[mass_id[mass_num_id] << 4], mass[mass_num_id], sizeof(double) * Cach_Size);
-            pe_syn();
-          }
-
-          double dtfm = dtf / mass[mass_num_id][type[i]&(15)];
-          v[pi_3 + 0] += dtfm * f[pi_3 + 0];
-          v[pi_3 + 1] += dtfm * f[pi_3 + 1];
-          v[pi_3 + 2] += dtfm * f[pi_3 + 2];
-
-          x[pi_3 + 0] += dtv  * v[pi_3 + 0]; 
-          x[pi_3 + 1] += dtv  * v[pi_3 + 1]; 
-          x[pi_3 + 2] += dtv  * v[pi_3 + 2]; 
-
-        }
-      }
-      pe_put( local_pm.v[ii], v, sizeof(double) * step_size * 3);
-      pe_syn();
-      pe_put( local_pm.x[ii], x, sizeof(double) * step_size * 3);
+      pe_put(x[ist], xi[0], isz * 3 * sizeof(double));
+      pe_put(v[ist], vi[0], isz * 3 * sizeof(double));
       pe_syn();
     }
   }
 }
+#undef NCOMP
+#define NCOMP 64
+void fix_nve_final_integrate_para(fix_nve_param_t *pm){
+  pe_init();
+  fix_nve_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(fix_nve_param_t));
+  pe_syn();
+  double (*x)[3] = l_pm.x, (*v)[3] = l_pm.v, (*f)[3] = l_pm.f;
+  double *rmass = l_pm.rmass;
+  double dtv = l_pm.dtv, dtf = l_pm.dtf;
+  int nlocal = l_pm.nlocal, groupbit = l_pm.groupbit;
+  int *type = l_pm.type, *mask = l_pm.mask;
+  int i, ist;
+  int mi[ISTEP];
+  int ti[ISTEP];
+  double vi[ISTEP][3];
+  double fi[ISTEP][3];
+  if (_MYID >= NCOMP) return;
+  if (rmass) {
+    for (ist = _MYID * ISTEP; ist < nlocal; ist += NCOMP * ISTEP){
+      int ied = ist + ISTEP;
+      if (ied > nlocal) ied = nlocal;
+      int isz = ied - ist;
+      for(i = ist; i < ied; i ++){
+        if (mask[i] & groupbit) {
+          double dtfm = dtf / rmass[i];
+          v[i][0] += dtfm * f[i][0];
+          v[i][1] += dtfm * f[i][1];
+          v[i][2] += dtfm * f[i][2];
+        }
+      }
+    }
+  } else {
+    double mass[l_pm.ntypes + 1];
+    pe_get(l_pm.mass, mass, (l_pm.ntypes + 1) * sizeof(double));
+    pe_syn();
+    double dtfmt[l_pm.ntypes + 1];
+    for (i = 0; i <= l_pm.ntypes; i ++)
+      dtfmt[i] = dtf / mass[i];
+    for (ist = _MYID * ISTEP; ist < nlocal; ist += NCOMP * ISTEP){
+      int ied = ist + ISTEP;
+      if (ied > nlocal) ied = nlocal;
+      int isz = ied - ist;
+      pe_get(v[ist], vi[0], isz * 3 * sizeof(double));
+      pe_get(f[ist], fi[0], isz * 3 * sizeof(double));
+      pe_get(mask + ist, mi, isz * sizeof(int));
+      pe_get(type + ist, ti, isz * sizeof(int));
+      pe_syn();
+
+      for(i = 0; i < isz; i ++){
+        if (mi[i] & groupbit) {
+          double dtfm = dtfmt[ti[i]];
+          vi[i][0] += dtfm * fi[i][0];
+          vi[i][1] += dtfm * fi[i][1];
+          vi[i][2] += dtfm * fi[i][2];
+        }
+      }
+      pe_put(v[ist], vi[0], isz * 3 * sizeof(double));
+      pe_syn();
+    }
+  }
+}
+
 #endif
