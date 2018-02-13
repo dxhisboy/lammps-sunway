@@ -709,7 +709,6 @@ int PairReaxCSunway::estimate_reax_lists()
   for( itr_i = 0; itr_i < numall; ++itr_i ){
     i = ilist[itr_i];
     num_allnbrs += numneigh[i];
-
     // marked[i] = 1;
     // ++num_marked;
     jlist = firstneigh[i];

@@ -29,7 +29,9 @@
 #ifndef REAX_DEFS_SUNWAY_H
 #define REAX_DEFS_SUNWAY_H
 
+#ifdef __cplusplus
 namespace REAXC_SUNWAY_NS{
+#endif
 
 #if defined(__IBMC__)
 #define inline __inline__
@@ -52,13 +54,13 @@ namespace REAXC_SUNWAY_NS{
 #define CUBE(x)       ((x)*(x)*(x))
 #define DEG2RAD(a)    ((a)*constPI/180.0)
 #define RAD2DEG(a)    ((a)*180.0/constPI)
-// #define MAX(x,y)      (((x) > (y)) ? (x) : (y))
-// #define MIN(x,y)      (((x) < (y)) ? (x) : (y))
+  // #define MAX(x,y)      (((x) > (y)) ? (x) : (y))
+  // #define MIN(x,y)      (((x) < (y)) ? (x) : (y))
 #define MAX3(x,y,z)   MAX( MAX(x,y), z)
 
 #define constPI        3.14159265
 #define C_ele          332.06371
-//#define K_B         503.398008   // kcal/mol/K
+  //#define K_B         503.398008   // kcal/mol/K
 #define K_B             0.831687   // amu A^2 / ps^2 / K
 #define F_CONV          1e6 / 48.88821291 / 48.88821291   // --> amu A / ps^2
 #define E_CONV          0.002391   // amu A^2 / ps^2 --> kcal/mol
@@ -121,44 +123,48 @@ namespace REAXC_SUNWAY_NS{
 #define MAXREAXBOND 24 /* used in fix_reaxc_bonds.cpp and pair_reaxc.cpp */
 #define MAXSPECBOND 24 /* used in fix_reaxc_species.cpp and pair_reaxc.cpp */
 
-/******************* ENUMERATIONS *************************/
-enum geo_formats { CUSTOM, PDB, ASCII_RESTART, BINARY_RESTART, GF_N };
+  /******************* ENUMERATIONS *************************/
+#ifdef __cplusplus
+  extern "C"{
+#endif
+    enum geo_formats { CUSTOM, PDB, ASCII_RESTART, BINARY_RESTART, GF_N };
 
-enum restart_formats { WRITE_ASCII, WRITE_BINARY, RF_N };
+    enum restart_formats { WRITE_ASCII, WRITE_BINARY, RF_N };
 
-enum ensembles { NVE, bNVT, nhNVT, sNPT, iNPT, NPT, ens_N };
+    enum ensembles { NVE, bNVT, nhNVT, sNPT, iNPT, NPT, ens_N };
 
-enum lists { BONDS, OLD_BONDS, THREE_BODIES,
-             HBONDS, FAR_NBRS, FAR_NBRS_FULL, DBOS, DDELTAS, LIST_N };
+    enum lists { BONDS, OLD_BONDS, THREE_BODIES,
+                 HBONDS, FAR_NBRS, FAR_NBRS_FULL, DBOS, DDELTAS, LIST_N };
 
-enum interactions { TYP_VOID, TYP_BOND, TYP_THREE_BODY,
-                    TYP_HBOND, TYP_FAR_NEIGHBOR, TYP_FAR_NEIGHBOR_FULL,
-                    TYP_DBO, TYP_DDELTA, TYP_N };
+    enum interactions { TYP_VOID, TYP_BOND, TYP_THREE_BODY,
+                        TYP_HBOND, TYP_FAR_NEIGHBOR, TYP_FAR_NEIGHBOR_FULL,
+                        TYP_DBO, TYP_DDELTA, TYP_N };
 
-enum message_tags { INIT, UPDATE, BNDRY, UPDATE_BNDRY,
-                    EXC_VEC1, EXC_VEC2, DIST_RVEC2, COLL_RVEC2,
-                    DIST_RVECS, COLL_RVECS, INIT_DESCS, ATOM_LINES,
-                    BOND_LINES, ANGLE_LINES, RESTART_ATOMS, TAGS_N };
+    enum message_tags { INIT, UPDATE, BNDRY, UPDATE_BNDRY,
+                        EXC_VEC1, EXC_VEC2, DIST_RVEC2, COLL_RVEC2,
+                        DIST_RVECS, COLL_RVECS, INIT_DESCS, ATOM_LINES,
+                        BOND_LINES, ANGLE_LINES, RESTART_ATOMS, TAGS_N };
 
-enum errors { FILE_NOT_FOUND = -10, UNKNOWN_ATOM_TYPE = -11,
-              CANNOT_OPEN_FILE = -12, CANNOT_INITIALIZE = -13,
-              INSUFFICIENT_MEMORY = -14, UNKNOWN_OPTION = -15,
-              INVALID_INPUT = -16, INVALID_GEO = -17 };
+    enum errors { FILE_NOT_FOUND = -10, UNKNOWN_ATOM_TYPE = -11,
+                  CANNOT_OPEN_FILE = -12, CANNOT_INITIALIZE = -13,
+                  INSUFFICIENT_MEMORY = -14, UNKNOWN_OPTION = -15,
+                  INVALID_INPUT = -16, INVALID_GEO = -17 };
 
-enum exchanges { NONE, NEAR_EXCH, FULL_EXCH };
+    enum exchanges { NONE, NEAR_EXCH, FULL_EXCH };
 
-enum gcell_types { NO_NBRS=0, NEAR_ONLY=1, HBOND_ONLY=2, FAR_ONLY=4,
-                   NEAR_SUNWAY_HBOND=3, NEAR_FAR=5, HBOND_FAR=6, FULL_NBRS=7,
-                   NATIVE=8 };
+    enum gcell_types { NO_NBRS=0, NEAR_ONLY=1, HBOND_ONLY=2, FAR_ONLY=4,
+                       NEAR_SUNWAY_HBOND=3, NEAR_FAR=5, HBOND_FAR=6, FULL_NBRS=7,
+                       NATIVE=8 };
 
-enum atoms { C_ATOM = 0, H_ATOM = 1, O_ATOM = 2, N_ATOM = 3,
-             S_ATOM = 4, SI_ATOM = 5, GE_ATOM = 6, X_ATOM = 7 };
+    enum atoms { C_ATOM = 0, H_ATOM = 1, O_ATOM = 2, N_ATOM = 3,
+                 S_ATOM = 4, SI_ATOM = 5, GE_ATOM = 6, X_ATOM = 7 };
 
-enum traj_methods { REG_TRAJ, MPI_TRAJ, TF_N };
+    enum traj_methods { REG_TRAJ, MPI_TRAJ, TF_N };
 
-enum molecules { UNKNOWN, WATER };
+    enum molecules { UNKNOWN, WATER };
 
-
+#ifdef __cplusplus
+  }
 }
-
+#endif
 #endif

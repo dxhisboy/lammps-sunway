@@ -94,14 +94,14 @@ namespace REAXC_SUNWAY_NS{
                                  MPI_Comm comm )
   {
     /* van der Waals and Coulomb interactions */
-    // vdW_Coulomb_Energy_Full( system, control, data, workspace,
-    //                     lists, out_control );
-    if( control->tabulate == 0 )
-      vdW_Coulomb_Energy( system, control, data, workspace,
-                          lists, out_control );
-    else
-      Tabulated_vdW_Coulomb_Energy( system, control, data, workspace,
-                                    lists, out_control );
+    vdW_Coulomb_Energy_Full( system, control, data, workspace,
+                        lists, out_control );
+    // if( control->tabulate == 0 )
+    //   vdW_Coulomb_Energy( system, control, data, workspace,
+    //                       lists, out_control );
+    // else
+    //   Tabulated_vdW_Coulomb_Energy( system, control, data, workspace,
+    //                                 lists, out_control );
   }
 
 
@@ -262,7 +262,6 @@ namespace REAXC_SUNWAY_NS{
           else {
             flag = 0;
           }
-          puts("updating i-j distance");
         }
 
         if( flag ) {

@@ -246,7 +246,7 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
   dma_set_size(&cache_get_desc, sizeof(atom_in_t) * JCACHE_LINESIZE);
   dma_set_op(&cache_get_desc, DMA_GET);
   dma_set_reply(&cache_get_desc, &cache_reply);
-  lwpf_start(COMP);
+  //lwpf_start(COMP);
   for (i = 0; i < JCACHE_LINECNT; i ++)
     jcache_tag[i] = -1;
   for (ipage_start = ILIST_PAGESIZE * _MYID; ipage_start < inum; ipage_start += ILIST_PAGESIZE * 64){
@@ -254,14 +254,14 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
     if (ipage_end > inum)
       ipage_end = inum;
     int ipage_size = ipage_end - ipage_start;
-    lwpf_start(IREAD);
+    //lwpf_start(IREAD);
     pe_get(x[ipage_start], xi, ipage_size * sizeof(double) * 3);
     pe_get(type + ipage_start, ti, ipage_size * sizeof(int));
     pe_get(firstneigh + ipage_start, fn, ipage_size * sizeof(int*));
     pe_get(numneigh + ipage_start, nn, ipage_size * sizeof(int));
 
     pe_syn();
-    lwpf_stop(IREAD);
+    //lwpf_stop(IREAD);
     for (ii = ipage_start; ii < ipage_end; ii ++) {
       i = ii;
       int ioff = i - ipage_start;
@@ -280,7 +280,7 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
         pe_get(jlist + jpage_start, jlist_buf, jpage_size * sizeof(int));
         pe_syn();
         
-        lwpf_start(CACHE);
+        //lwpf_start(CACHE);
         for (jj = 0; jj < jpage_size; jj++) {
           j = jlist_buf[jj];
           factor_lj = special_lj[sbmask(j)];
@@ -299,11 +299,11 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
           }
           jlist_atom[jj] = j_cache[line][j & JCACHE_MMASK];
         }
-        lwpf_stop(CACHE);
+        //lwpf_stop(CACHE);
         for (jj = jpage_size; jj < ((jpage_size + 3) & (~3)); jj ++){
           jlist_atom[jj].x[0] = INF;
         }
-        lwpf_start(JLOOP);
+        //lwpf_start(JLOOP);
         for (jj = 0; jj < jpage_size; jj ++){
           jtype = jlist_atom[jj].type;
 
@@ -363,27 +363,27 @@ void pair_lj_cut_sunway_compute_para(pair_lj_cut_compute_param_t *pm){
             }
           }
         }
-        lwpf_stop(JLOOP);
+        //lwpf_stop(JLOOP);
       }
     }
-    lwpf_start(IWRITE);
+    //lwpf_start(IWRITE);
     pe_put(f[ipage_start], fi[0], sizeof(double) * 3 * ipage_size);
     if (l_pm.eflag_either && l_pm.eflag_atom)
       pe_put(l_pm.eatom + ipage_start, ei, sizeof(double) * ipage_size);
     if (l_pm.vflag_either && l_pm.vflag_atom)
       pe_put(l_pm.vatom[ipage_start], vi[0], sizeof(double) * 6 * ipage_size);
     pe_syn();
-    lwpf_stop(IWRITE);
+    //lwpf_stop(IWRITE);
   }
-  lwpf_stop(COMP);
+  //lwpf_stop(COMP);
   reg_reduce_inplace_doublev4(eng_virial, 2);
-  lwpf_start(GST);
+  //lwpf_start(GST);
   if (_MYID == 0){
     pe_put(&(pm->eng_vdwl), eng_vdwl, sizeof(double) * 8);
     pe_syn();
   }
-  lwpf_stop(GST);
-  lwpf_stop(ALL);
+  //lwpf_stop(GST);
+  //lwpf_stop(ALL);
 }
 
 //__thread_local volatile int cache_reply;            

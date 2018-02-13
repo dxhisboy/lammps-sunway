@@ -66,9 +66,13 @@ void fix_nve_initial_integrate_para(fix_nve_param_t *pm){
       if (ied > nlocal) ied = nlocal;
       int isz = ied - ist;
       pe_get(x[ist], xi[0], isz * 3 * sizeof(double));
+      pe_syn();
       pe_get(v[ist], vi[0], isz * 3 * sizeof(double));
+      pe_syn();
       pe_get(f[ist], fi[0], isz * 3 * sizeof(double));
+      pe_syn();
       pe_get(mask + ist, mi, isz * sizeof(int));
+      pe_syn();
       pe_get(type + ist, ti, isz * sizeof(int));
       pe_syn();
 
@@ -133,8 +137,11 @@ void fix_nve_final_integrate_para(fix_nve_param_t *pm){
       if (ied > nlocal) ied = nlocal;
       int isz = ied - ist;
       pe_get(v[ist], vi[0], isz * 3 * sizeof(double));
+      pe_syn();
       pe_get(f[ist], fi[0], isz * 3 * sizeof(double));
+      pe_syn();
       pe_get(mask + ist, mi, isz * sizeof(int));
+      pe_syn();
       pe_get(type + ist, ti, isz * sizeof(int));
       pe_syn();
 

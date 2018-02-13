@@ -11,7 +11,7 @@ SHELL = /bin/sh
 # specify flags and libraries needed for your compiler
 
 CC =		mpiCC
-CCFLAGS =	-O2 -DSUNWAY -g # -Wunused
+CCFLAGS =	-O2 -DSUNWAY -g -DLAMMPS_BIGBIG# -Wunused
 SHFLAGS =	-fPIC
 DEP = gcc
 DEPFLAGS =	-M

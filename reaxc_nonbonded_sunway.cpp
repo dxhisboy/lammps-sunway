@@ -30,9 +30,10 @@
 #include "reaxc_bond_orders_sunway.h"
 #include "reaxc_list_sunway.h"
 #include "reaxc_vector_sunway.h"
-
+#include "reaxc_nonbonded_sw64.h"
+#include "sunway.h"
+#include "gptl.h"
 namespace REAXC_SUNWAY_NS{
-
 
   void vdW_Coulomb_Energy( reax_system *system, control_params *control,
                            simulation_data *data, storage *workspace,
@@ -227,6 +228,14 @@ namespace REAXC_SUNWAY_NS{
                                 simulation_data *data, storage *workspace,
                                 reax_list **lists, output_controls *out_control )
   {
+    reax_system_c csys;
+    system->to_c_sys(&csys);
+    GPTLstart("reaxc vdw coul full c");
+    vdW_Coulomb_Energy_Full_C(&csys, control, data, workspace, lists, out_control);
+    GPTLstop("reaxc vdw coul full c");
+    system->from_c_sys(&csys);
+    Compute_Polarization_Energy( system, data );
+    return;
     int i, j, pj, natoms, nlocal;
     int start_i, end_i, flag;
     rc_tagint orig_i, orig_j;
@@ -266,9 +275,6 @@ namespace REAXC_SUNWAY_NS{
         if (system->my_atoms[j].type < 0) continue;
         orig_j  = system->my_atoms[j].orig_id;
         flag = 1;
-
-        // rvec_Copy(nbr_pj->dvec, system->x[j]);
-        // rvec_ScaledAdd(nbr_pj->dvec, -1, system->x[i]);
 
         if (i >= nlocal && j >= nlocal) continue;
         if (i >= nlocal){
