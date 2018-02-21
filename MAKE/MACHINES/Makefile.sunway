@@ -17,7 +17,8 @@ DEP = gcc
 DEPFLAGS =	-M
 
 LINK =		mpiCC
-LINKFLAGS =	-hybrid -O2  -g
+LINKFLAGS =	-hybrid -O2  -g 
+#-Wl,-wrap,MPI_Init,-wrap,MPI_Initialized,-wrap,MPI_Finalized,-wrap,MPI_Get_processor_name,-wrap,MPI_Get_version,-wrap,MPI_Comm_rank,-wrap,MPI_Comm_size,-wrap,MPI_Abort,-wrap,MPI_Finalize,-wrap,MPI_Wtime,-wrap,MPI_Type_size,-wrap,MPI_Request_free,-wrap,MPI_Send,-wrap,MPI_Isend,-wrap,MPI_Rsend,-wrap,MPI_Recv,-wrap,MPI_Irecv,-wrap,MPI_Wait,-wrap,MPI_Waitall,-wrap,MPI_Waitany,-wrap,MPI_Sendrecv,-wrap,MPI_Get_count,-wrap,MPI_Comm_split,-wrap,MPI_Comm_dup,-wrap,MPI_Comm_free,-wrap,MPI_Comm_c2f,-wrap,MPI_Comm_f2c,-wrap,MPI_Comm_group,-wrap,MPI_Comm_create,-wrap,MPI_Group_incl,-wrap,MPI_Cart_create,-wrap,MPI_Cart_get,-wrap,MPI_Cart_shift,-wrap,MPI_Cart_rank,-wrap,MPI_Type_contiguous,-wrap,MPI_Type_commit,-wrap,MPI_Type_free,-wrap,MPI_Op_create,-wrap,MPI_Op_free,-wrap,MPI_Barrier,-wrap,MPI_Bcast,-wrap,MPI_Allreduce,-wrap,MPI_Reduce,-wrap,MPI_Scan,-wrap,MPI_Allgather,-wrap,MPI_Allgatherv,-wrap,MPI_Reduce_scatter,-wrap,MPI_Gather,-wrap,MPI_Gatherv,-wrap,MPI_Scatter,-wrap,MPI_Scatterv,-wrap,MPI_Alltoall,-wrap,MPI_Alltoallv
 LIB =           ../libgptl.a -lm_slave
 SIZE =		size
 

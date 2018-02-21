@@ -32,9 +32,13 @@ extern "C"{
   typedef double rvec4[4];
 
   // import LAMMPS' definition of tagint and bigint
+#ifndef LAMMPS_BIGBIG
   typedef int rc_tagint;
   typedef long rc_bigint;
-
+#else
+  typedef long rc_tagint;
+  typedef long rc_bigint;
+#endif
   typedef struct
   {
     int  cnt;

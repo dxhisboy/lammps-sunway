@@ -287,6 +287,7 @@ void FixReaxCBondsSunway::RecvBuffer(double *buf, int nbuf, int nbuf_local,
       if (inode == 0) {
         nlocal_tmp = nlocal;
       } else {
+        puts("is here");
         MPI_Irecv(&buf[0],nbuf,MPI_DOUBLE,inode,0,world,&irequest);
         MPI_Wait(&irequest,MPI_STATUS_IGNORE);
         nlocal_tmp = nint(buf[0]);

@@ -277,6 +277,7 @@ void Replicate::command(int narg, char **arg)
 
   for (int iproc = 0; iproc < nprocs; iproc++) {
     if (me == iproc) {
+      printf("replicate: %d\n", me);
       n = 0;
       for (i = 0; i < old->nlocal; i++) n += old_avec->pack_restart(i,&buf[n]);
     }

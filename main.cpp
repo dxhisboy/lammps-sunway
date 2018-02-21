@@ -31,11 +31,19 @@ using namespace LAMMPS_NS;
 extern "C"{
   extern void spc_on_sig(int sig);
 }
+int __rank;
 int main(int argc, char **argv)
 {
   MPI_Init(&argc,&argv);
   GPTLinitialize();
-  signal(SIGUSR1, spc_on_sig);
+
+  MPI_Comm_rank(MPI_COMM_WORLD, &__rank);
+  if (__rank == 0){
+    signal(SIGUSR1, spc_on_sig);
+    printf("%d\n", getpid());
+  } else {
+    signal(SIGUSR1, SIG_IGN);
+  }
 // enable trapping selected floating point exceptions.
 // this uses GNU extensions and is only tested on Linux
 // therefore we make it depend on -D_GNU_SOURCE, too.
@@ -50,7 +58,6 @@ int main(int argc, char **argv)
   feenableexcept(FE_INVALID);
   feenableexcept(FE_OVERFLOW);
 #endif
-  printf("%d\n", getpid());
 #ifdef LAMMPS_EXCEPTIONS
   try {
     LAMMPS *lammps = new LAMMPS(argc,argv,MPI_COMM_WORLD);
