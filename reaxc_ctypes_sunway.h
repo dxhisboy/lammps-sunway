@@ -1,7 +1,13 @@
 #ifndef REAXC_CTYPES_SUNWAY_H_
 #define REAXC_CTYPES_SUNWAY_H_
   /************* SOME DEFS - crucial for reax_types.h *********/
-
+#include <stdint.h>
+#include <stdio.h>
+#ifdef CPE
+#include "STUBS/mpi.h"
+#else
+#include <mpi.h>
+#endif
 #define LAMMPS_REAX
 
   //#define DEBUG
@@ -20,7 +26,7 @@
 #define REAX_MAX_4BODY_PARAM    5
 #define REAX_MAX_ATOM_TYPES     25
 #define REAX_MAX_MOLECULE_SIZE  20
-#define MAX_BOND                    20  // same as reaxc_defs_sunway.h
+#define MAX_BOND_T              12  // same as reaxc_defs_sunway.h
 #ifdef __cplusplus
 extern "C"{
 #endif
@@ -32,13 +38,29 @@ extern "C"{
   typedef double rvec4[4];
 
   // import LAMMPS' definition of tagint and bigint
-#ifndef LAMMPS_BIGBIG
-  typedef int rc_tagint;
-  typedef long rc_bigint;
-#else
-  typedef long rc_tagint;
-  typedef long rc_bigint;
+  //#ifndef LAMMPS_BIGBIG
+#if !defined(LAMMPS_SMALLSMALL) && !defined(LAMMPS_BIGBIG) && !defined(LAMMPS_SMALLBIG)
+#define LAMMPS_SMALLBIG
 #endif
+
+#ifdef LAMMPS_SMALLBIG
+  typedef int rc_tagint;
+  typedef int64_t rc_bigint;
+#endif
+#ifdef LAMMPS_BIGBIG
+  typedef int64_t rc_tagint;
+  typedef int64_t rc_bigint;
+#endif
+#ifdef LAMMPS_SMALLSMALL
+  typedef int rc_tagint;
+  typedef int rc_bigint;
+#endif
+  /* typedef int rc_tagint; */
+  /* typedef long rc_bigint; */
+  //#else
+  //  typedef long rc_tagint;
+  //  typedef long rc_bigint;
+  //#endif
   typedef struct
   {
     int  cnt;
@@ -206,19 +228,26 @@ extern "C"{
     four_body_header ****fbp;
   } reax_interaction;
 
+  typedef struct atom_pack_t{
+    rc_tagint  orig_id;
+    int  type;
+    rvec x; // position
+    double q; // charge
+  } atom_pack_t;
   struct _reax_atom
   {
     rc_tagint  orig_id;
-    int  imprt_id;
     int  type;
+    rvec x; // position
+    double q; // charge
+
+    int  imprt_id;
     char name[8];
 
-    rvec x; // position
     rvec v; // velocity
     rvec f; // force
     rvec f_old;
 
-    double q; // charge
     rvec4 s; // they take part in
     rvec4 t; // computing q
 
@@ -228,8 +257,8 @@ extern "C"{
     int renumber;
 
     int numbonds;                  // true number of bonds around atoms
-    int nbr_id[MAX_BOND];          // ids of neighbors around atoms
-    double nbr_bo[MAX_BOND];          // BO values of bond between i and nbr
+    int nbr_id[MAX_BOND_T];          // ids of neighbors around atoms
+    double nbr_bo[MAX_BOND_T];          // BO values of bond between i and nbr
     double sum_bo, no_lp;           // sum of BO values and no. of lone pairs
   };
   typedef struct _reax_atom reax_atom;
@@ -531,6 +560,15 @@ extern "C"{
 
   typedef struct {
     int nbr;
+    int type;
+    int orig_id;
+    ivec rel_box;
+    double d;
+    rvec dvec;
+    double q;
+  } far_neighbor_data_full;
+  typedef struct {
+    int nbr;
     int scl;
     far_neighbor_data *ptr;
   } hbond_data;
@@ -659,6 +697,7 @@ extern "C"{
     dbond_data         *dbo_list;
     dDelta_data        *dDelta_list;
     far_neighbor_data  *far_nbr_list;
+    far_neighbor_data_full  *far_nbr_list_full;
     hbond_data         *hbond_list;
   } list_type;
 
@@ -762,7 +801,7 @@ extern "C"{
 
     rc_bigint        bigN;
     int              n, N, numH;
-    int              local_cap, total_cap, gcell_cap, Hcap;
+    int              local_cap, total_cap, gcell_cap, Hcap, maxfar;
     int              est_recv, est_trans, max_recved;
     int              wsize, my_rank, num_nbrs;
     ivec             my_coords;
@@ -772,6 +811,7 @@ extern "C"{
     grid             my_grid;
     boundary_cutoff  bndry_cuts;
     reax_atom       *my_atoms;
+    atom_pack_t *packed_atoms;
     double (*x)[3];
     int my_bonds;
     int mincap;

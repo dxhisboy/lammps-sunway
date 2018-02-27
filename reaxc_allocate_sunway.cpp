@@ -54,7 +54,8 @@ int PreAllocate_Space( reax_system *system, control_params *control,
 
   system->my_atoms = (reax_atom*)
     scalloc( system->total_cap, sizeof(reax_atom), "my_atoms", comm );
-
+  system->packed_atoms = (atom_pack_t*)
+    smalloc( system->total_cap * sizeof(atom_pack_t), "packed_atoms", comm);
   // Nullify some arrays only used in omp styles
   // Should be safe to do here since called in pair->setup();
 #ifdef LMP_USER_OMP
@@ -75,6 +76,8 @@ int Allocate_System( reax_system *system, int local_cap, int total_cap,
 {
   system->my_atoms = (reax_atom*)
     realloc( system->my_atoms, total_cap*sizeof(reax_atom) );
+  system->packed_atoms = (atom_pack_t*)
+    realloc( system->packed_atoms, total_cap*sizeof(atom_pack_t));
 
   return SUCCESS;
 }

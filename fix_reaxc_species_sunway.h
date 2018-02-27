@@ -23,10 +23,6 @@ FixStyle(reax/c/species/sunway,FixReaxCSpeciesSunway)
 #include "fix.h"
 #include "pointers.h"
 
-#include "pair_reaxc_sunway.h"
-#include "reaxc_types_sunway.h"
-#include "reaxc_defs_sunway.h"
-
 #define BUFLEN 1000
 namespace REAXC_SUNWAY_NS{
   typedef struct {
@@ -35,7 +31,7 @@ namespace REAXC_SUNWAY_NS{
 }
 
 namespace LAMMPS_NS {
-  using namespace REAXC_SUNWAY_NS;
+  //using namespace REAXC_SUNWAY_NS;
 class FixReaxCSpeciesSunway : public Fix {
  public:
   FixReaxCSpeciesSunway(class LAMMPS *, int, char **);

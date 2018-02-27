@@ -34,7 +34,6 @@
 #include "citeme.h"
 #include "memory.h"
 #include "error.h"
-
 #include "reaxc_types_sunway.h"
 #include "reaxc_allocate_sunway.h"
 #include "reaxc_control_sunway.h"
@@ -51,6 +50,8 @@
 
 #include "sunway.h"
 #include "gptl.h"
+
+#include "pair_reaxc_sw64.h"
 using namespace LAMMPS_NS;
 using namespace REAXC_SUNWAY_NS;
 
@@ -76,7 +77,7 @@ PairReaxCSunway::PairReaxCSunway(LAMMPS *lmp) : Pair(lmp)
   one_coeff = 1;
   manybody_flag = 1;
   ghostneigh = 1;
-
+  evflag = 0;
   system = (reax_system *)
     memory->smalloc(sizeof(reax_system),"reax:system");
   control = (control_params *)
@@ -236,7 +237,7 @@ void PairReaxCSunway::settings(int narg, char **arg)
   system->mincap = MIN_CAP;
   system->safezone = SAFE_ZONE;
   system->saferzone = SAFER_ZONE;
-
+  system->maxfar = 1024;
   // process optional keywords
 
   int iarg = 1;
@@ -272,6 +273,12 @@ void PairReaxCSunway::settings(int narg, char **arg)
       system->mincap = force->inumeric(FLERR,arg[iarg+1]);
       if (system->mincap < 0)
 	error->all(FLERR,"Illegal pair_style reax/c mincap command");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"maxfar") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal pair_style reax/c command");
+      system->maxfar = force->inumeric(FLERR,arg[iarg+1]);
+      if (system->maxfar < 0)
+	error->all(FLERR,"Illegal pair_style reax/c maxfar command");
       iarg += 2;
     } else error->all(FLERR,"Illegal pair_style reax/c command");
   }
@@ -545,8 +552,10 @@ void PairReaxCSunway::compute(int eflag, int vflag)
   GPTLstop("reaxc reset");
   GPTLstart("reaxc write reax lists");
   workspace->realloc.num_far = write_reax_lists();
-  write_reax_full_lists();
   GPTLstop("reaxc write reax lists");
+  GPTLstart("reaxc write reax lists full");
+  write_reax_full_lists();
+  GPTLstop("reaxc write reax lists full");
   // timing for filling in the reax lists
   if( comm->me == 0 ) {
     t_end = MPI_Wtime();
@@ -644,10 +653,23 @@ void PairReaxCSunway::write_reax_atoms()
 {
   int *num_bonds = fix_reax->num_bonds;
   int *num_hbonds = fix_reax->num_hbonds;
-
+  //printf("%lld\n", system);
   if (system->N > system->total_cap)
     error->all(FLERR,"Too many ghost atoms");
-
+  reax_system_c csys;
+  system->to_c_sys(&csys);
+  //printf("%lld\n", system->my_atoms);
+  write_atoms_param_t pm;
+  pm.map = map;
+  pm.csys = &csys;
+  pm.tag = atom->tag;
+  pm.type = atom->type;
+  pm.x = (double (*)[3])(void*)atom->x[0];
+  pm.q = atom->q;
+  pm.num_bonds = num_bonds;
+  pm.num_hbonds = num_hbonds;
+  write_reax_atoms_and_pack(&pm);
+  return;
   for( int i = 0; i < system->N; ++i ){
     system->my_atoms[i].orig_id = atom->tag[i];
     system->my_atoms[i].type = map[atom->type[i]];
@@ -685,6 +707,7 @@ void PairReaxCSunway::set_far_nbr( far_neighbor_data *fdest,
 
 int PairReaxCSunway::estimate_reax_lists()
 {
+  return system->N * system->maxfar / 2;
   int itr_i, itr_j, i, j;
   int num_nbrs;//, num_marked;
   int *ilist, *jlist, *numneigh, **firstneigh;//, *marked;
@@ -783,9 +806,9 @@ int PairReaxCSunway::write_reax_full_lists()
   int *ilist, *jlist, *numneigh, **firstneigh;
   double d_sqr;
   rvec dvec;
-  double *dist, **x;
-  reax_list *far_nbrs, *far_nbrs_full;
-  far_neighbor_data *far_list, far_nbrs_fulllist;
+  double dist, **x;
+  reax_list *far_nbrs;
+  far_neighbor_data_full *far_list, far_nbrs_fulllist;
 
   x = atom->x;
   ilist = listfull->ilist;
@@ -793,13 +816,23 @@ int PairReaxCSunway::write_reax_full_lists()
   firstneigh = listfull->firstneigh;
 
   far_nbrs = lists + FAR_NBRS_FULL;
-  far_list = far_nbrs->select.far_nbr_list;
+  far_list = far_nbrs->select.far_nbr_list_full;
 
   num_nbrs = 0;
-  dist = (double*) calloc( system->N, sizeof(double) );
 
   int numall = list->inum + list->gnum;
-
+  
+  write_lists_param_t pm;
+  pm.numall = numall;
+  pm.patoms = system->packed_atoms;
+  pm.ilist = ilist;
+  pm.numneigh = numneigh;
+  pm.firstneigh = firstneigh;
+  pm.nonb_cutsq = control->nonb_cut * control->nonb_cut;
+  pm.far_nbrs = far_nbrs;
+  pm.maxfar = system->maxfar;
+  write_reax_lists_c(&pm);
+  return 0;
   for( itr_i = 0; itr_i < numall; ++itr_i ){
     i = ilist[itr_i];
     jlist = firstneigh[i];
@@ -808,18 +841,21 @@ int PairReaxCSunway::write_reax_full_lists()
     for( itr_j = 0; itr_j < numneigh[i]; ++itr_j ){
       j = jlist[itr_j];
       j &= NEIGHMASK;
-      get_distance( x[j], x[i], &d_sqr, &dvec );
-
+      get_distance( system->packed_atoms[j].x, system->packed_atoms[i].x, &d_sqr, &dvec );
       if( d_sqr <= (control->nonb_cut*control->nonb_cut) ){
-        dist[j] = sqrt( d_sqr );
-        set_far_nbr( &far_list[num_nbrs], j, dist[j], dvec );
+        far_neighbor_data_full *nbr = far_list + num_nbrs;
+        nbr->nbr = j;
+        nbr->d = sqrt(d_sqr);
+        rvec_Copy( nbr->dvec, dvec );
+        ivec_MakeZero( nbr->rel_box );
+        nbr->type = system->packed_atoms[j].type;
+        nbr->orig_id = system->packed_atoms[j].orig_id;
+        nbr->q = system->packed_atoms[j].q;
         ++num_nbrs;
       }
     }
     Set_End_Index( i, num_nbrs, far_nbrs );
   }
-
-  free( dist );
 
   return num_nbrs;
 }

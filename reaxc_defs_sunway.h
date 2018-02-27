@@ -118,10 +118,10 @@ namespace REAXC_SUNWAY_NS{
 #define MAX_ITR 10
 #define RESTART 30
 
-#define MAX_BOND 20
+#define MAX_BOND 12
 
-#define MAXREAXBOND 24 /* used in fix_reaxc_bonds.cpp and pair_reaxc.cpp */
-#define MAXSPECBOND 24 /* used in fix_reaxc_species.cpp and pair_reaxc.cpp */
+#define MAXREAXBOND 12 /* used in fix_reaxc_bonds.cpp and pair_reaxc.cpp */
+#define MAXSPECBOND 12/* used in fix_reaxc_species.cpp and pair_reaxc.cpp */
 
   /******************* ENUMERATIONS *************************/
 #ifdef __cplusplus

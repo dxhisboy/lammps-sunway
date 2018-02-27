@@ -37,6 +37,9 @@
 #include "memory.h"
 #include "error.h"
 #include "reaxc_list_sunway.h"
+#include "pair_reaxc_sunway.h"
+#include "reaxc_types_sunway.h"
+#include "reaxc_defs_sunway.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;

@@ -53,7 +53,7 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
   double e_lg, de_lg, r_ij5, r_ij6, re6;
   rvec temp, ext_press;
   two_body_parameters *twbp;
-  far_neighbor_data *nbr_pj;
+  far_neighbor_data_full *nbr_pj;
   reax_list *far_nbrs;
 
   // Tallying variables:
@@ -75,7 +75,6 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
   /* printf("%d\n", ntypes); */
   for (i = 0; i < ntypes; i ++)
     for (j = 0; j < ntypes; j ++){
-      fflush(stdout);
       tbpb[i][j].powgi_vdW1 = pow(tbpr[i][j].gamma_w, -p_vdW1);
       tbpb[i][j].r_vdWinv = 1.0 / tbpr[i][j].r_vdW;
       tbpb[i][j].alpha_div_rvdW = tbpr[i][j].alpha / tbpr[i][j].r_vdW;
@@ -86,6 +85,7 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
       double lgresq = tbpr[i][j].lgre * tbpr[i][j].lgre;
       tbpb[i][j].re6 = lgresq * lgresq * lgresq;
     }
+  //system->reax_param.gp.vdw_type = 1;
   for( i = 0; i < natoms; ++i ) {
     if (system->my_atoms[i].type < 0) continue;
     start_i = Start_Index(i, far_nbrs);
@@ -93,10 +93,10 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
     orig_i  = system->my_atoms[i].orig_id;
 
     for( pj = start_i; pj < end_i; ++pj ) {
-      nbr_pj = &(far_nbrs->select.far_nbr_list[pj]);
+      nbr_pj = &(far_nbrs->select.far_nbr_list_full[pj]);
       j = nbr_pj->nbr;
-      if (system->my_atoms[j].type < 0) continue;
-      orig_j  = system->my_atoms[j].orig_id;
+      if (nbr_pj->type < 0) continue;
+      orig_j  = nbr_pj->orig_id;
       flag = 1;
 
       if (i >= nlocal && j >= nlocal) continue;
@@ -114,8 +114,8 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
       double rijinv = 1 / r_ij;
       double r2ij = r_ij * r_ij;
       twbp = &(system->reax_param.tbp[ system->my_atoms[i].type ]
-               [ system->my_atoms[j].type ]);
-      tbpt = tbpb[system->my_atoms[i].type] + system->my_atoms[j].type;
+               [ nbr_pj->type ]);
+      tbpt = tbpb[system->my_atoms[i].type] + nbr_pj->type;
       Tap = workspace->Tap[7] * r_ij + workspace->Tap[6];
       Tap = Tap * r_ij + workspace->Tap[5];
       Tap = Tap * r_ij + workspace->Tap[4];
@@ -191,20 +191,21 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
       double dr3gamij_3inv = 1 / dr3gamij_3;
       tmp = Tap * dr3gamij_3inv;
       data->my_en.e_ele += e_ele =
-        C_ele * system->my_atoms[i].q * system->my_atoms[j].q * tmp;
+        C_ele * system->my_atoms[i].q * nbr_pj->q * tmp;
 
-      CEclmb = C_ele * system->my_atoms[i].q * system->my_atoms[j].q *
+      CEclmb = C_ele * system->my_atoms[i].q * nbr_pj->q *
         ( dTap -  Tap * r_ij * dr3gamij_1inv ) * dr3gamij_3inv;
 
       /* tally into per-atom energy */
       if( system->evflag || system->vflag_atom) {
         pe_vdw = Tap * (e_vdW + e_core + e_lg);
-        rvec_ScaledSum( delij, 1., system->my_atoms[i].x,
-                        -1., system->my_atoms[j].x );
+        /* rvec_ScaledSum( delij, 1., system->my_atoms[i].x, */
+        /*                 -1., system->my_atoms[j].x ); */
         f_tmp = -(CEvd + CEclmb);
         /* system->pair_ptr->ev_tally_full(i,pe_vdw,e_ele,f_tmp,delij[0], */
         /*                                 delij[1],delij[2]); */
-        ev_tally_full_sys(i, pe_vdw, e_ele, f_tmp, delij, system);
+        //ev_tally_full_sys(i, pe_vdw, e_ele, f_tmp, delij, system);
+        ev_tally_full_sys(i, pe_vdw, e_ele, f_tmp, nbr_pj->dvec, system);
       }
 
       if( control->virial == 0 ) {

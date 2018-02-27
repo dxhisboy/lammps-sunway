@@ -85,9 +85,9 @@ int Make_List(int n, int num_intrs, int type, reax_list *l, MPI_Comm comm)
     break;
 
   case TYP_FAR_NEIGHBOR_FULL:
-    if (l->select.far_nbr_list) sfree(l->select.far_nbr_list, "list:far_nbrs_full");
-    l->select.far_nbr_list = (far_neighbor_data*)
-      smalloc(l->num_intrs * 2 * sizeof(far_neighbor_data), "list:far_nbrs_full", comm);
+    if (l->select.far_nbr_list_full) sfree(l->select.far_nbr_list_full, "list:far_nbrs_full");
+    l->select.far_nbr_list_full = (far_neighbor_data_full*)
+      smalloc(l->num_intrs * 2 * sizeof(far_neighbor_data_full), "list:far_nbrs_full", comm);
     //puts("Make far nbr fulllist");
     break;
 
@@ -132,8 +132,8 @@ void Delete_List( reax_list *l, MPI_Comm comm )
     //puts("Del far nbr list");
     break;
   case TYP_FAR_NEIGHBOR_FULL:
-    sfree( l->select.far_nbr_list, "list:far_nbrs_full" );
-    l->select.far_nbr_list = NULL;
+    sfree( l->select.far_nbr_list_full, "list:far_nbrs_full" );
+    l->select.far_nbr_list_full = NULL;
     //puts("Make far nbr fulllist");
     break;
   case TYP_BOND:

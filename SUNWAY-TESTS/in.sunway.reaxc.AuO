@@ -1,0 +1,45 @@
+units          real
+
+atom_style     charge
+
+lattice        fcc 4.065
+region         box block 0 10 0 10 0 10
+create_box     1 box
+create_atoms   1 box
+mass           1 196.97
+
+pair_style     reax/c NULL write_freq 0
+pair_coeff     * * ffield.reax.AuO Au
+
+neighbor       2 bin
+neigh_modify   every 10 delay 0 check no
+
+# compute reax all pair reax/c
+
+# variable eb  	 equal c_reax[1]
+# variable ea  	 equal c_reax[2]
+# variable elp 	 equal c_reax[3]
+# variable emol 	 equal c_reax[4]
+# variable ev 	 equal c_reax[5]
+# variable epen 	 equal c_reax[6]
+# variable ecoa 	 equal c_reax[7]
+# variable ehb 	 equal c_reax[8]
+# variable et 	 equal c_reax[9]
+# variable eco 	 equal c_reax[10]
+# variable ew 	 equal c_reax[11]
+# variable ep 	 equal c_reax[12]
+# variable efi 	 equal c_reax[13]
+#variable eqeq 	 equal c_reax[14]
+
+fix            1 all qeq/reax 1 0.0 10.0 1e-6 reax/c
+fix            2 all nve
+
+#thermo_style   custom step temp epair etotal press &
+#	       v_eb v_ea v_elp v_emol v_ev v_epen v_ecoa &
+#	       v_ehb v_et v_eco v_ew v_ep v_efi v_eqeq
+
+thermo         1
+#dump           1 all atom 100 dump.Au.lammpstrj
+
+timestep       0.1
+run            10
