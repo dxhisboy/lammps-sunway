@@ -52,7 +52,7 @@ void Hydrogen_Bonds( reax_system *system, control_params *control,
   hbond_parameters *hbp;
   bond_order_data *bo_ij;
   bond_data *pbond_ij;
-  far_neighbor_data *nbr_jk;
+  far_neighbor_data_full *nbr_jk;
   reax_list *bonds, *hbonds;
   bond_data *bond_list;
   hbond_data *hbond_list;

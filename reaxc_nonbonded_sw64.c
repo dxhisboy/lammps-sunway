@@ -143,7 +143,7 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
           exp2 = exp( 0.5 * twbp->alpha * (1.0 - fn13 * tbpt->r_vdWinv) );
           exp1 = exp2 * exp2;
           e_vdW = twbp->D * (exp1 - 2.0 * exp2);
-          data->my_en.e_vdW += Tap * e_vdW;
+          data->my_en.e_vdW += 0.5 * Tap * e_vdW;
 
           dfn13 = pow( powr_vdW1 + powgi_vdW1, p_vdW1i - 1.0) *
             pow(r_ij, p_vdW1 - 2.0);
@@ -155,7 +155,7 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
         exp2 = exp( 0.5 * twbp->alpha * (1.0 - r_ij * tbpt->r_vdWinv) );
         exp1 = exp2 * exp2;
         e_vdW = twbp->D * (exp1 - 2.0 * exp2);
-        data->my_en.e_vdW += Tap * e_vdW;
+        data->my_en.e_vdW += 0.5 * Tap * e_vdW;
 
         CEvd = dTap * e_vdW -
           Tap * twbp->D * (tbpt->alpha_div_rvdW) * (exp1 - exp2) * rijinv;
@@ -164,7 +164,7 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
       if(system->reax_param.gp.vdw_type==2 || system->reax_param.gp.vdw_type==3)
         { // inner wall
           e_core = twbp->ecore * exp(twbp->acore * (1.0-(r_ij*tbpt->rcoreinv)));
-          data->my_en.e_vdW += Tap * e_core;
+          data->my_en.e_vdW += 0.5 * Tap * e_core;
 
           de_core = -(tbpt->a_div_rcore) * e_core;
           CEvd += dTap * e_core + Tap * de_core  * rijinv;
@@ -176,7 +176,7 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
             re6 = tbpt->re6;
             double rrinv = 1 / (r_ij6 + re6);
             e_lg = -(twbp->lgcij * rrinv);
-            data->my_en.e_vdW += Tap * e_lg;
+            data->my_en.e_vdW += 0.5 * Tap * e_lg;
 
             de_lg = -6.0 * e_lg *  r_ij5 * rrinv;
             CEvd += dTap * e_lg + Tap * de_lg  * rijinv;
@@ -190,8 +190,8 @@ void vdW_Coulomb_Energy_Full_C( reax_system_c *system, control_params *control,
       double dr3gamij_1inv = 1 / dr3gamij_1;
       double dr3gamij_3inv = 1 / dr3gamij_3;
       tmp = Tap * dr3gamij_3inv;
-      data->my_en.e_ele += e_ele =
-        C_ele * system->my_atoms[i].q * nbr_pj->q * tmp;
+      data->my_en.e_ele += 0.5 * (e_ele =
+                                  C_ele * system->my_atoms[i].q * nbr_pj->q * tmp);
 
       CEclmb = C_ele * system->my_atoms[i].q * nbr_pj->q *
         ( dTap -  Tap * r_ij * dr3gamij_1inv ) * dr3gamij_3inv;

@@ -57,6 +57,8 @@ void write_reax_lists_c(write_lists_param_t *pm){
         nbr->dvec[1] = dvec[1];
         nbr->dvec[2] = dvec[2];
         nbr->rel_box[0] = 0;
+        nbr->rel_box[1] = 0;
+        nbr->rel_box[2] = 0;
         nbr->type = patoms[j].type;
         nbr->orig_id = patoms[j].orig_id;
         nbr->q = patoms[j].q;

@@ -95,10 +95,10 @@ namespace REAXC_SUNWAY_NS{
   {
     /* van der Waals and Coulomb interactions */
     vdW_Coulomb_Energy_Full( system, control, data, workspace,
-                        lists, out_control );
+                             lists, out_control );
     // if( control->tabulate == 0 )
-    //   vdW_Coulomb_Energy( system, control, data, workspace,
-    //                       lists, out_control );
+    // vdW_Coulomb_Energy( system, control, data, workspace,
+    //                     lists, out_control );
     // else
     //   Tabulated_vdW_Coulomb_Energy( system, control, data, workspace,
     //                                 lists, out_control );
@@ -178,12 +178,340 @@ namespace REAXC_SUNWAY_NS{
       }
     }
   }
+  static void print_bond(int i, bond_data *data, reax_system *system){
+    printf("%d %d, d: %.10f, dvec: [%.10f %.10f %.10f], ", 
+           i, data->nbr, data->d, data->dvec[0],
+           data->dvec[1], data->dvec[2]);
+    bond_order_data *bo = &(data->bo_data);
+    printf("BO: %.10f, BO_s: %.10f, BO_pi: %.10f, BO_pi2: %.10f, ", 
+           bo->BO, bo->BO_s, bo->BO_pi, bo->BO_pi2);
+    printf("dBOp: %.10f, dln_BOp_s: %.10f, dln_BOp_pi: %.10f, dln_BOp_pi2: %.10f",
+           bo->dBOp, bo->dln_BOp_s, bo->dln_BOp_pi, bo->dln_BOp_pi2);
+    int j = data->nbr;
+    double *xi = system->my_atoms[i].x;
+    double *xj = system->my_atoms[j].x;
+    printf("i: [%.10f %.10f %.10f], ", xi[0], xi[1], xi[2]);
+    printf("j: [%.10f %.10f %.10f]\n", xj[0], xj[1], xj[2]);
+  }
+
+  int cmp_bonds(const void *a, const void *b){
+    bond_data *abond = (bond_data*)a;
+    bond_data *bbond = (bond_data*)b;
+    if (abond->nbr < bbond->nbr)
+      return -1;
+    if (abond->nbr > bbond->nbr)
+      return 1;
+    return 0;
+  }
+
+  static void sort_bonds(reax_list *bonds, reax_system *system){
+    int i, j;
+    for (i = 0; i < system->N; i ++){
+      int i_start = Start_Index(i, bonds);
+      int i_stop = End_Index(i, bonds);
+      qsort(bonds->select.bond_list + i_start, i_stop - i_start, sizeof(bond_data), cmp_bonds);
+    }
+    for (i = 0; i < system->N; i ++){
+      int start_i = Start_Index( i, bonds );
+      int end_i = End_Index( i, bonds);
+      int pj;
+      for( pj = start_i; pj < end_i; ++pj ) {
+        bond_data *jbond = bonds->select.bond_list + pj;
+        j = jbond->nbr;
+        int start_j = Start_Index( j, bonds);
+        int end_j = End_Index( j, bonds );
+        int pk;
+        int flag = 0;
+        for ( pk = start_j; pk < end_j; ++pk ) {
+          bond_data *kbond = bonds->select.bond_list + pk;
+          int k = kbond->nbr;
+          if (k == i){
+            jbond->sym_index = pk;
+            flag = 1;
+          }
+        }
+        if (!flag)
+          printf("sym not found %d %d\n", i, j);
+      }
+    }
+  }
+  static void print_bonds(reax_list *bonds, reax_system *system){
+    int i, j;
+    for (i = 0; i < system->N; i ++){
+      int i_start = Start_Index(i, bonds);
+      int i_stop = End_Index(i, bonds);
+      int pj;
+      for (pj = i_start; pj < i_stop; ++pj){
+        j = bonds->select.bond_list[pj].nbr;
+        print_bond(i, bonds->select.bond_list + pj, system);
+      }
+    }
+  }
+  // void Init_Forces_noQEq( reax_system *system, control_params *control,
+  //                         simulation_data *data, storage *workspace,
+  //                         reax_list **lists, output_controls *out_control,
+  //                         MPI_Comm comm ) {
+  //   int i, j, pj;
+  //   int start_i, end_i;
+  //   int type_i, type_j;
+  //   int btop_i, btop_j, num_bonds, num_hbonds;
+  //   int ihb, jhb, ihb_top, jhb_top;
+  //   int local, flag, renbr;
+  //   double cutoff;
+  //   reax_list *far_nbrs, *bonds, *hbonds;
+  //   single_body_parameters *sbp_i, *sbp_j;
+  //   two_body_parameters *twbp;
+  //   far_neighbor_data *nbr_pj;
+  //   reax_atom *atom_i, *atom_j;
+
+  //   far_nbrs = *lists + FAR_NBRS;
+  //   bonds = *lists + BONDS;
+  //   hbonds = *lists + HBONDS;
+
+  //   for( i = 0; i < system->n; ++i )
+  //     workspace->bond_mark[i] = 0;
+  //   for( i = system->n; i < system->N; ++i ) {
+  //     workspace->bond_mark[i] = 1000; // put ghost atoms to an infinite distance
+  //   }
+
+  //   num_bonds = 0;
+  //   num_hbonds = 0;
+  //   btop_i = btop_j = 0;
+  //   renbr = (data->step-data->prev_steps) % control->reneighbor == 0;
+  //   //printf("%d\n", renbr);
+  //   for( i = 0; i < system->N; ++i ) {
+  //     atom_i = &(system->my_atoms[i]);
+  //     type_i  = atom_i->type;
+  //     if (type_i < 0) continue;
+  //     start_i = Start_Index(i, far_nbrs);
+  //     end_i   = End_Index(i, far_nbrs);
+  //     btop_i = End_Index( i, bonds );
+  //     sbp_i = &(system->reax_param.sbp[type_i]);
+
+  //     if( i < system->n ) {
+  //       local = 1;
+  //       cutoff = MAX( control->hbond_cut, control->bond_cut );
+  //     }
+  //     else {
+  //       local = 0;
+  //       cutoff = control->bond_cut;
+  //     }
+
+  //     ihb = -1;
+  //     ihb_top = -1;
+  //     if( local && control->hbond_cut > 0 ) {
+  //       ihb = sbp_i->p_hbond;
+  //       if( ihb == 1 )
+  //         ihb_top = End_Index( atom_i->Hindex, hbonds );
+  //       else ihb_top = -1;
+  //     }
+
+  //     /* update i-j distance - check if j is within cutoff */
+  //     for( pj = start_i; pj < end_i; ++pj ) {
+  //       nbr_pj = &( far_nbrs->select.far_nbr_list[pj] );
+  //       j = nbr_pj->nbr;
+  //       atom_j = &(system->my_atoms[j]);
+
+  //       if( renbr ) {
+  //         if( nbr_pj->d <= cutoff )
+  //           flag = 1;
+  //         else flag = 0;
+  //       }
+  //       else{
+  //         nbr_pj->dvec[0] = atom_j->x[0] - atom_i->x[0];
+  //         nbr_pj->dvec[1] = atom_j->x[1] - atom_i->x[1];
+  //         nbr_pj->dvec[2] = atom_j->x[2] - atom_i->x[2];
+  //         nbr_pj->d = rvec_Norm_Sqr( nbr_pj->dvec );
+  //         if( nbr_pj->d <= SQR(cutoff) ) {
+  //           nbr_pj->d = sqrt(nbr_pj->d);
+  //           flag = 1;
+  //         }
+  //         else {
+  //           flag = 0;
+  //         }
+  //       }
+
+  //       if( flag ) {
+  //         type_j = atom_j->type;
+  //         if (type_j < 0) continue;
+  //         sbp_j = &(system->reax_param.sbp[type_j]);
+  //         twbp = &(system->reax_param.tbp[type_i][type_j]);
+
+  //         if( local ) {
+  //           /* hydrogen bond lists */
+  //           if( control->hbond_cut > 0 && (ihb==1 || ihb==2) &&
+  //               nbr_pj->d <= control->hbond_cut ) {
+  //             // fprintf( stderr, "%d %d\n", atom1, atom2 );
+  //             jhb = sbp_j->p_hbond;
+  //             if( ihb == 1 && jhb == 2 ) {
+  //               hbonds->select.hbond_list[ihb_top].nbr = j;
+  //               hbonds->select.hbond_list[ihb_top].scl = 1;
+  //               hbonds->select.hbond_list[ihb_top].ptr = nbr_pj;
+  //               ++ihb_top;
+  //               ++num_hbonds;
+  //             }
+  //             else if( j < system->n && ihb == 2 && jhb == 1 ) {
+  //               jhb_top = End_Index( atom_j->Hindex, hbonds );
+  //               hbonds->select.hbond_list[jhb_top].nbr = i;
+  //               hbonds->select.hbond_list[jhb_top].scl = -1;
+  //               hbonds->select.hbond_list[jhb_top].ptr = nbr_pj;
+  //               Set_End_Index( atom_j->Hindex, jhb_top+1, hbonds );
+  //               ++num_hbonds;
+  //             }
+  //           }
+  //         }
+
+  //         if( //(workspace->bond_mark[i] < 3 || workspace->bond_mark[j] < 3) &&
+  //            nbr_pj->d <= control->bond_cut &&
+  //            BOp( workspace, bonds, control->bo_cut,
+  //                 i , btop_i, nbr_pj, sbp_i, sbp_j, twbp ) ) {
+  //           num_bonds += 2;
+  //           ++btop_i;
+
+  //           if( workspace->bond_mark[j] > workspace->bond_mark[i] + 1 )
+  //             workspace->bond_mark[j] = workspace->bond_mark[i] + 1;
+  //           else if( workspace->bond_mark[i] > workspace->bond_mark[j] + 1 ) {
+  //             workspace->bond_mark[i] = workspace->bond_mark[j] + 1;
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     Set_End_Index( i, btop_i, bonds );
+  //     if( local && ihb == 1 )
+  //       Set_End_Index( atom_i->Hindex, ihb_top, hbonds );
+  //   }
 
 
-  void Init_Forces_noQEq( reax_system *system, control_params *control,
-                          simulation_data *data, storage *workspace,
-                          reax_list **lists, output_controls *out_control,
-                          MPI_Comm comm ) {
+  //   workspace->realloc.num_bonds = num_bonds;
+  //   workspace->realloc.num_hbonds = num_hbonds;
+
+  //   Validate_Lists( system, workspace, lists, data->step,
+  //                   system->n, system->N, system->numH, comm );
+
+  //   // for (i = 0; i < system->N; i ++){
+  //   //   int i_start = Start_Index(i, bonds);
+  //   //   int i_stop = End_Index(i, bonds);
+  //   //   int pj;
+  //   //   for (pj = i_start; pj < i_stop; ++pj){
+  //   //     j = bonds->select.bond_list[pj].nbr;
+  //   //     //if (i == 190 && j == 203){
+  //   //     print_bond(i, bonds->select.bond_list + pj, system);
+  //   //     // }
+  //   //   }
+  //   // }
+
+  // }
+
+
+  int BOp_single( storage *workspace, reax_list *bonds, double bo_cut,
+                  int i, int btop_i, far_neighbor_data_full *nbr_pj,
+                  single_body_parameters *sbp_i, single_body_parameters *sbp_j,
+                  two_body_parameters *twbp ) {
+    double r2, C12, C34, C56;
+    double Cln_BOp_s, Cln_BOp_pi, Cln_BOp_pi2;
+    double BO, BO_s, BO_pi, BO_pi2;
+    bond_data *ibond;
+    bond_order_data *bo_ij;
+
+    r2 = SQR(nbr_pj->d);
+
+    if( sbp_i->r_s > 0.0 && sbp_j->r_s > 0.0 ) {
+      C12 = twbp->p_bo1 * pow( nbr_pj->d / twbp->r_s, twbp->p_bo2 );
+      BO_s = (1.0 + bo_cut) * exp( C12 );
+    }
+    else BO_s = C12 = 0.0;
+
+    if( sbp_i->r_pi > 0.0 && sbp_j->r_pi > 0.0 ) {
+      C34 = twbp->p_bo3 * pow( nbr_pj->d / twbp->r_p, twbp->p_bo4 );
+      BO_pi = exp( C34 );
+    }
+    else BO_pi = C34 = 0.0;
+
+    if( sbp_i->r_pi_pi > 0.0 && sbp_j->r_pi_pi > 0.0 ) {
+      C56 = twbp->p_bo5 * pow( nbr_pj->d / twbp->r_pp, twbp->p_bo6 );
+      BO_pi2= exp( C56 );
+    }
+    else BO_pi2 = C56 = 0.0;
+
+    /* Initially BO values are the uncorrected ones, page 1 */
+    BO = BO_s + BO_pi + BO_pi2;
+
+    if( BO >= bo_cut ) {
+      /****** bonds i-j and j-i ******/
+      ibond = &( bonds->select.bond_list[btop_i] );
+
+      ibond->nbr = nbr_pj->nbr;
+      ibond->d = nbr_pj->d;
+      //jbond->d = nbr_pj->d;
+      rvec_Copy( ibond->dvec, nbr_pj->dvec );
+      //rvec_Scale( jbond->dvec, -1, nbr_pj->dvec );
+      ivec_Copy( ibond->rel_box, nbr_pj->rel_box );
+      //ivec_Scale( jbond->rel_box, -1, nbr_pj->rel_box );
+      ibond->dbond_index = btop_i;
+      //jbond->dbond_index = btop_i;
+      //ibond->sym_index = btop_j;
+      //jbond->sym_index = btop_i;
+      //Set_End_Index( j, btop_j+1, bonds );
+
+      bo_ij = &( ibond->bo_data );
+      // bo_ji = &( jbond->bo_data );
+      // bo_ji->BO = 
+      bo_ij->BO = BO;
+      // bo_ji->BO_s = 
+      bo_ij->BO_s = BO_s;
+      // bo_ji->BO_pi = 
+      bo_ij->BO_pi = BO_pi;
+      // bo_ji->BO_pi2 = 
+      bo_ij->BO_pi2 = BO_pi2;
+
+      /* Bond Order page2-3, derivative of total bond order prime */
+      Cln_BOp_s = twbp->p_bo2 * C12 / r2;
+      Cln_BOp_pi = twbp->p_bo4 * C34 / r2;
+      Cln_BOp_pi2 = twbp->p_bo6 * C56 / r2;
+
+      /* Only dln_BOp_xx wrt. dr_i is stored here, note that
+         dln_BOp_xx/dr_i = -dln_BOp_xx/dr_j and all others are 0 */
+      //printf("%f %f %f\n", ibond->dvec[0], ibond->dvec[1], ibond->dvec[2]);
+      //, bo_ij->BO_s);
+      rvec_Scale(bo_ij->dln_BOp_s,-bo_ij->BO_s*Cln_BOp_s,ibond->dvec);
+      rvec_Scale(bo_ij->dln_BOp_pi,-bo_ij->BO_pi*Cln_BOp_pi,ibond->dvec);
+      rvec_Scale(bo_ij->dln_BOp_pi2,
+                 -bo_ij->BO_pi2*Cln_BOp_pi2,ibond->dvec);
+      // rvec_Scale(bo_ji->dln_BOp_s, -1., bo_ij->dln_BOp_s);
+      // rvec_Scale(bo_ji->dln_BOp_pi, -1., bo_ij->dln_BOp_pi );
+      // rvec_Scale(bo_ji->dln_BOp_pi2, -1., bo_ij->dln_BOp_pi2 );
+
+      rvec_Scale( bo_ij->dBOp,
+                  -(bo_ij->BO_s * Cln_BOp_s +
+                    bo_ij->BO_pi * Cln_BOp_pi +
+                    bo_ij->BO_pi2 * Cln_BOp_pi2), ibond->dvec );
+      //rvec_Scale( bo_ji->dBOp, -1., bo_ij->dBOp );
+
+      rvec_Add( workspace->dDeltap_self[i], bo_ij->dBOp );
+      //rvec_Add( workspace->dDeltap_self[j], bo_ji->dBOp );
+
+      bo_ij->BO_s -= bo_cut;
+      bo_ij->BO -= bo_cut;
+      // bo_ji->BO_s -= bo_cut;
+      // bo_ji->BO -= bo_cut;
+      workspace->total_bond_order[i] += bo_ij->BO; //currently total_BOp
+      //workspace->total_bond_order[j] += bo_ji->BO; //currently total_BOp
+      bo_ij->Cdbo = bo_ij->Cdbopi = bo_ij->Cdbopi2 = 0.0;
+      //bo_ji->Cdbo = bo_ji->Cdbopi = bo_ji->Cdbopi2 = 0.0;
+      // if (i == 150)
+      //print_bond(i, ibond);
+      return 1;
+    }
+
+    return 0;
+  }
+
+
+  void Init_Forces_noQEq_Full( reax_system *system, control_params *control,
+                               simulation_data *data, storage *workspace,
+                               reax_list **lists, output_controls *out_control,
+                               MPI_Comm comm ) {
     int i, j, pj;
     int start_i, end_i;
     int type_i, type_j;
@@ -194,10 +522,10 @@ namespace REAXC_SUNWAY_NS{
     reax_list *far_nbrs, *bonds, *hbonds;
     single_body_parameters *sbp_i, *sbp_j;
     two_body_parameters *twbp;
-    far_neighbor_data *nbr_pj;
+    far_neighbor_data_full *nbr_pj;
     reax_atom *atom_i, *atom_j;
 
-    far_nbrs = *lists + FAR_NBRS;
+    far_nbrs = *lists + FAR_NBRS_FULL;
     bonds = *lists + BONDS;
     hbonds = *lists + HBONDS;
 
@@ -221,48 +549,203 @@ namespace REAXC_SUNWAY_NS{
       btop_i = End_Index( i, bonds );
       sbp_i = &(system->reax_param.sbp[type_i]);
 
-      if( i < system->n ) {
-        local = 1;
-        cutoff = MAX( control->hbond_cut, control->bond_cut );
-      }
-      else {
-        local = 0;
-        cutoff = control->bond_cut;
-      }
-
-      ihb = -1;
-      ihb_top = -1;
-      if( local && control->hbond_cut > 0 ) {
-        ihb = sbp_i->p_hbond;
-        if( ihb == 1 )
-          ihb_top = End_Index( atom_i->Hindex, hbonds );
-        else ihb_top = -1;
-      }
+      cutoff = control->bond_cut;
 
       /* update i-j distance - check if j is within cutoff */
       for( pj = start_i; pj < end_i; ++pj ) {
-        nbr_pj = &( far_nbrs->select.far_nbr_list[pj] );
+        nbr_pj = &( far_nbrs->select.far_nbr_list_full[pj] );
         j = nbr_pj->nbr;
         atom_j = &(system->my_atoms[j]);
 
-        if( renbr ) {
-          if( nbr_pj->d <= cutoff )
-            flag = 1;
-          else flag = 0;
-        }
-        else{
-          nbr_pj->dvec[0] = atom_j->x[0] - atom_i->x[0];
-          nbr_pj->dvec[1] = atom_j->x[1] - atom_i->x[1];
-          nbr_pj->dvec[2] = atom_j->x[2] - atom_i->x[2];
-          nbr_pj->d = rvec_Norm_Sqr( nbr_pj->dvec );
-          if( nbr_pj->d <= SQR(cutoff) ) {
-            nbr_pj->d = sqrt(nbr_pj->d);
-            flag = 1;
+        if( nbr_pj->d <= cutoff )
+          flag = 1;
+        else flag = 0;
+
+
+        if( flag ) {
+          type_j = atom_j->type;
+          if (type_j < 0) continue;
+          sbp_j = &(system->reax_param.sbp[type_j]);
+          twbp = &(system->reax_param.tbp[type_i][type_j]);
+
+          if(nbr_pj->d <= control->bond_cut &&
+             BOp_single( workspace, bonds, control->bo_cut,
+                         i , btop_i, nbr_pj, sbp_i, sbp_j, twbp ) ) {
+            num_bonds += 1;
+            ++btop_i;
+            if (j > i){
+              if( workspace->bond_mark[j] > workspace->bond_mark[i] + 1 )
+                workspace->bond_mark[j] = workspace->bond_mark[i] + 1;
+              else 
+                if( workspace->bond_mark[i] > workspace->bond_mark[j] + 1 ) {
+                  workspace->bond_mark[i] = workspace->bond_mark[j] + 1;
+                }
+            }
           }
-          else {
-            flag = 0;
-          }
         }
+      }
+
+      Set_End_Index( i, btop_i, bonds );
+    }
+
+    workspace->realloc.num_bonds = num_bonds;
+  }
+  // void Init_Forces_noQEq_HB( reax_system *system, control_params *control,
+  //                            simulation_data *data, storage *workspace,
+  //                            reax_list **lists, output_controls *out_control,
+  //                            MPI_Comm comm ) {
+  //   int i, j, pj;
+  //   int start_i, end_i;
+  //   int type_i, type_j;
+  //   //int btop_i, btop_j, num_bonds
+  //   int num_hbonds;
+  //   int ihb, jhb, ihb_top, jhb_top;
+  //   int local, flag, renbr;
+  //   double cutoff;
+  //   reax_list *far_nbrs, *hbonds;
+  //   single_body_parameters *sbp_i, *sbp_j;
+  //   two_body_parameters *twbp;
+  //   far_neighbor_data *nbr_pj;
+  //   reax_atom *atom_i, *atom_j;
+
+  //   far_nbrs = *lists + FAR_NBRS;
+  //   hbonds = *lists + HBONDS;
+
+  //   num_hbonds = 0;
+  //   renbr = (data->step-data->prev_steps) % control->reneighbor == 0;
+
+  //   for( i = 0; i < system->N; ++i ) {
+  //     atom_i = &(system->my_atoms[i]);
+  //     type_i  = atom_i->type;
+  //     if (type_i < 0) continue;
+  //     start_i = Start_Index(i, far_nbrs);
+  //     end_i   = End_Index(i, far_nbrs);
+  //     //btop_i = End_Index( i, bonds );
+  //     sbp_i = &(system->reax_param.sbp[type_i]);
+
+  //     if( i < system->n ) {
+  //       local = 1;
+  //       cutoff = MAX( control->hbond_cut, control->bond_cut );
+  //     }
+  //     else {
+  //       local = 0;
+  //       cutoff = control->bond_cut;
+  //     }
+
+  //     ihb = -1;
+  //     ihb_top = -1;
+  //     if( local && control->hbond_cut > 0 ) {
+  //       ihb = sbp_i->p_hbond;
+  //       if( ihb == 1 )
+  //         ihb_top = End_Index( atom_i->Hindex, hbonds );
+  //       else ihb_top = -1;
+  //     }
+
+  //     /* update i-j distance - check if j is within cutoff */
+  //     for( pj = start_i; pj < end_i; ++pj ) {
+  //       nbr_pj = &( far_nbrs->select.far_nbr_list[pj] );
+  //       j = nbr_pj->nbr;
+  //       atom_j = &(system->my_atoms[j]);
+
+  //       if( nbr_pj->d <= cutoff )
+  //         flag = 1;
+  //       else flag = 0;
+
+  //       if( flag ) {
+  //         type_j = atom_j->type;
+  //         if (type_j < 0) continue;
+  //         sbp_j = &(system->reax_param.sbp[type_j]);
+  //         twbp = &(system->reax_param.tbp[type_i][type_j]);
+
+  //         if( local ) {
+  //           /* hydrogen bond lists */
+  //           if( control->hbond_cut > 0 && (ihb==1 || ihb==2) &&
+  //               nbr_pj->d <= control->hbond_cut ) {
+  //             // fprintf( stderr, "%d %d\n", atom1, atom2 );
+  //             jhb = sbp_j->p_hbond;
+  //             if( ihb == 1 && jhb == 2 ) {
+  //               hbonds->select.hbond_list[ihb_top].nbr = j;
+  //               hbonds->select.hbond_list[ihb_top].scl = 1;
+  //               hbonds->select.hbond_list[ihb_top].ptr = nbr_pj;
+  //               ++ihb_top;
+  //               ++num_hbonds;
+  //             }
+  //             else if( j < system->n && ihb == 2 && jhb == 1 ) {
+  //               jhb_top = End_Index( atom_j->Hindex, hbonds );
+  //               hbonds->select.hbond_list[jhb_top].nbr = i;
+  //               hbonds->select.hbond_list[jhb_top].scl = -1;
+  //               hbonds->select.hbond_list[jhb_top].ptr = nbr_pj;
+  //               Set_End_Index( atom_j->Hindex, jhb_top+1, hbonds );
+  //               ++num_hbonds;
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     //Set_End_Index( i, btop_i, bonds );
+  //     if( local && ihb == 1 )
+  //       Set_End_Index( atom_i->Hindex, ihb_top, hbonds );
+  //   }
+
+
+  //   workspace->realloc.num_hbonds = num_hbonds;
+  //   printf("%d\n", num_hbonds);
+  //   Validate_Lists( system, workspace, lists, data->step,
+  //                   system->n, system->N, system->numH, comm );
+  // }
+
+  void Init_Forces_noQEq_HB_Full( reax_system *system, control_params *control,
+                                  simulation_data *data, storage *workspace,
+                                  reax_list **lists, output_controls *out_control,
+                                  MPI_Comm comm ) {
+    int i, j, pj;
+    int start_i, end_i;
+    int type_i, type_j;
+    //int btop_i, btop_j, num_bonds
+    int num_hbonds;
+    int ihb, jhb, ihb_top;
+    int local, flag, renbr;
+    double cutoff;
+    reax_list *far_nbrs, *hbonds;
+    single_body_parameters *sbp_i, *sbp_j;
+    two_body_parameters *twbp;
+    far_neighbor_data_full *nbr_pj;
+    reax_atom *atom_i, *atom_j;
+
+    far_nbrs = *lists + FAR_NBRS_FULL;
+    hbonds = *lists + HBONDS;
+
+    num_hbonds = 0;
+    renbr = (data->step-data->prev_steps) % control->reneighbor == 0;
+    if (control->hbond_cut <= 0)
+      return;
+    for( i = 0; i < system->n; ++i ) {
+      atom_i = &(system->my_atoms[i]);
+      type_i  = atom_i->type;
+      if (type_i < 0) continue;
+      start_i = Start_Index(i, far_nbrs);
+      end_i   = End_Index(i, far_nbrs);
+      sbp_i = &(system->reax_param.sbp[type_i]);
+
+      local = 1;
+      cutoff = control->hbond_cut;
+
+      ihb = -1;
+      ihb_top = -1;
+      ihb = sbp_i->p_hbond;
+      if( ihb == 1 )
+        ihb_top = End_Index( atom_i->Hindex, hbonds );
+      else continue;
+
+      for( pj = start_i; pj < end_i; ++pj ) {
+        nbr_pj = &( far_nbrs->select.far_nbr_list_full[pj] );
+        j = nbr_pj->nbr;
+        atom_j = &(system->my_atoms[j]);
+
+        if( nbr_pj->d <= cutoff )
+          flag = 1;
+        else flag = 0;
 
         if( flag ) {
           type_j = atom_j->type;
@@ -271,10 +754,7 @@ namespace REAXC_SUNWAY_NS{
           twbp = &(system->reax_param.tbp[type_i][type_j]);
 
           if( local ) {
-            /* hydrogen bond lists */
-            if( control->hbond_cut > 0 && (ihb==1 || ihb==2) &&
-                nbr_pj->d <= control->hbond_cut ) {
-              // fprintf( stderr, "%d %d\n", atom1, atom2 );
+            if( (ihb==1 || ihb==2)) {
               jhb = sbp_j->p_hbond;
               if( ihb == 1 && jhb == 2 ) {
                 hbonds->select.hbond_list[ihb_top].nbr = j;
@@ -283,42 +763,16 @@ namespace REAXC_SUNWAY_NS{
                 ++ihb_top;
                 ++num_hbonds;
               }
-              else if( j < system->n && ihb == 2 && jhb == 1 ) {
-                jhb_top = End_Index( atom_j->Hindex, hbonds );
-                hbonds->select.hbond_list[jhb_top].nbr = i;
-                hbonds->select.hbond_list[jhb_top].scl = -1;
-                hbonds->select.hbond_list[jhb_top].ptr = nbr_pj;
-                Set_End_Index( atom_j->Hindex, jhb_top+1, hbonds );
-                ++num_hbonds;
-              }
-            }
-          }
-
-          if( //(workspace->bond_mark[i] < 3 || workspace->bond_mark[j] < 3) &&
-             nbr_pj->d <= control->bond_cut &&
-             BOp( workspace, bonds, control->bo_cut,
-                  i , btop_i, nbr_pj, sbp_i, sbp_j, twbp ) ) {
-            num_bonds += 2;
-            ++btop_i;
-
-            if( workspace->bond_mark[j] > workspace->bond_mark[i] + 1 )
-              workspace->bond_mark[j] = workspace->bond_mark[i] + 1;
-            else if( workspace->bond_mark[i] > workspace->bond_mark[j] + 1 ) {
-              workspace->bond_mark[i] = workspace->bond_mark[j] + 1;
             }
           }
         }
       }
 
-      Set_End_Index( i, btop_i, bonds );
-      if( local && ihb == 1 )
+      if(ihb == 1 )
         Set_End_Index( atom_i->Hindex, ihb_top, hbonds );
     }
 
-
-    workspace->realloc.num_bonds = num_bonds;
     workspace->realloc.num_hbonds = num_hbonds;
-
     Validate_Lists( system, workspace, lists, data->step,
                     system->n, system->N, system->numH, comm );
   }
@@ -451,8 +905,21 @@ namespace REAXC_SUNWAY_NS{
   {
     MPI_Comm comm = mpi_data->world;
     GPTLstart("reaxc init forces noqeq");
-    Init_Forces_noQEq( system, control, data, workspace,
-                       lists, out_control, comm );
+    // if (getenv("NOMOD"))
+    //   Init_Forces_noQEq( system, control, data, workspace,
+    //                      lists, out_control, comm );
+    // else{
+    Init_Forces_noQEq_Full( system, control, data, workspace,
+                            lists, out_control, comm );
+    Init_Forces_noQEq_HB_Full( system, control, data, workspace,
+                               lists, out_control, comm );
+    //}
+    //int i;
+    sort_bonds(*lists + BONDS, system);
+    // print_bonds(*lists + BONDS, system);
+    // for (i = 0; i < system->N; i ++)
+    //   printf("bmk: %d %d\n", i, workspace->bond_mark[i]);
+
     GPTLstop("reaxc init forces noqeq");
     /********* bonded interactions ************/
     GPTLstart("reaxc bonded forces");

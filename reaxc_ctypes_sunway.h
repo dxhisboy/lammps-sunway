@@ -570,7 +570,7 @@ extern "C"{
   typedef struct {
     int nbr;
     int scl;
-    far_neighbor_data *ptr;
+    far_neighbor_data_full *ptr;
   } hbond_data;
 
 
@@ -605,7 +605,6 @@ extern "C"{
     rvec dvec;
     bond_order_data bo_data;
   } bond_data;
-
 
   typedef struct {
     int j;

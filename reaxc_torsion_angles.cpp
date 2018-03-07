@@ -194,7 +194,6 @@ void Torsion_Angles( reax_system *system, control_params *control,
 
       if( bo_jk->BO > control->thb_cut/*0*/ && Num_Entries(pk, thb_intrs) ) {
         pj = pbond_jk->sym_index; // pj points to j on k's list
-
         if( Num_Entries(pj, thb_intrs) ) {
           type_k = system->my_atoms[k].type;
           Delta_k = workspace->Delta_boc[k];

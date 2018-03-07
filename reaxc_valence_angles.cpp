@@ -173,7 +173,7 @@ void Valence_Angles( reax_system *system, control_params *control,
       bo_ij = &(pbond_ij->bo_data);
       BOA_ij = bo_ij->BO - control->thb_cut;
 
-
+      //printf("start: %d %d %f\n", j, pbond_ij->nbr, BOA_ij);
       if( BOA_ij/*bo_ij->BO*/ > 0.0 &&
           ( j < system->n || pbond_ij->nbr < system->n ) ) {
         i = pbond_ij->nbr;
@@ -207,7 +207,7 @@ void Valence_Angles( reax_system *system, control_params *control,
           k        = pbond_jk->nbr;
           type_k   = system->my_atoms[k].type;
           p_ijk    = &( thb_intrs->select.three_body_list[num_thb_intrs] );
-
+          //printf("add: %d %d %d %f\n", j, i, k, BOA_jk);
           Calculate_Theta( pbond_ij->dvec, pbond_ij->d,
                            pbond_jk->dvec, pbond_jk->d,
                            &theta, &cos_theta );
@@ -401,6 +401,21 @@ void Valence_Angles( reax_system *system, control_params *control,
       }
 
       Set_End_Index(pi, num_thb_intrs, thb_intrs );
+    }
+  }
+  for (i = 0; i < system->N; i ++){
+    int i_start = Start_Index(i, bonds);
+    int i_stop = End_Index(i, bonds);
+    int pj;
+    for (pj = i_start; pj < i_stop; ++pj){
+      j = bonds->select.bond_list[pj].nbr;
+      int k_start = Start_Index(pj, thb_intrs);
+      int k_stop = End_Index(pj, thb_intrs);
+      int pk;
+      for (pk = k_start; pk < k_stop; pk ++){
+        k = thb_intrs->select.three_body_list[pk].thb;
+        //printf("%d %d %d\n", i, j, k);
+      }
     }
   }
 

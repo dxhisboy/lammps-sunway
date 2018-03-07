@@ -747,6 +747,7 @@ int Neighbor::init_pair()
     lists[i]->stencil_method = flag;
     if (flag < 0) 
       error->all(FLERR,"Requested neighbor stencil method does not exist");
+    
 
   }
 

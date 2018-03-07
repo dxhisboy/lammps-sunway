@@ -171,6 +171,32 @@ void Validate_Lists( reax_system *system, storage *workspace, reax_list **lists,
 }
 
 
+// static void print_bond(int i, bond_data *data){
+//   printf("%d %d, d: %.10f, dvec: [%.10f %.10f %.10f], ", 
+//          i, data->nbr, data->d, data->dvec[0],
+//          data->dvec[1], data->dvec[2]);
+//   bond_order_data *bo = &(data->bo_data);
+//   printf("BO: %.10f, BO_s: %.10f, BO_pi: %.10f, BO_pi2: %.10f, ", 
+//          bo->BO, bo->BO_s, bo->BO_pi, bo->BO_pi2);
+//   printf("dBOp: %.10f, dln_BOp_s: %.10f, dln_BOp_pi: %.10f, dln_BOp_pi2: %.10f\n",
+//          bo->dBOp, bo->dln_BOp_s, bo->dln_BOp_pi, bo->dln_BOp_pi2);
+// }
+
+static void print_bond(int i, bond_data *data, reax_system *system){
+  printf("%d %d, d: %.10f, dvec: [%.10f %.10f %.10f], ", 
+         i, data->nbr, data->d, data->dvec[0],
+         data->dvec[1], data->dvec[2]);
+  bond_order_data *bo = &(data->bo_data);
+  printf("BO: %.10f, BO_s: %.10f, BO_pi: %.10f, BO_pi2: %.10f, ", 
+         bo->BO, bo->BO_s, bo->BO_pi, bo->BO_pi2);
+  printf("dBOp: %.10f, dln_BOp_s: %.10f, dln_BOp_pi: %.10f, dln_BOp_pi2: %.10f",
+         bo->dBOp, bo->dln_BOp_s, bo->dln_BOp_pi, bo->dln_BOp_pi2);
+  int j = data->nbr;
+  double *xi = system->my_atoms[i].x;
+  double *xj = system->my_atoms[j].x;
+  printf("i: [%.10f %.10f %.10f], ", xi[0], xi[1], xi[2]);
+  printf("j: [%.10f %.10f %.10f]\n", xj[0], xj[1], xj[2]);
+}
 void Init_Forces_noQEq( reax_system *system, control_params *control,
                         simulation_data *data, storage *workspace,
                         reax_list **lists, output_controls *out_control,
@@ -285,10 +311,9 @@ void Init_Forces_noQEq( reax_system *system, control_params *control,
           }
         }
 
-        if( //(workspace->bond_mark[i] < 3 || workspace->bond_mark[j] < 3) &&
-            nbr_pj->d <= control->bond_cut &&
-            BOp( workspace, bonds, control->bo_cut,
-                 i , btop_i, nbr_pj, sbp_i, sbp_j, twbp ) ) {
+        if(nbr_pj->d <= control->bond_cut &&
+           BOp( workspace, bonds, control->bo_cut,
+                i , btop_i, nbr_pj, sbp_i, sbp_j, twbp ) ) {
           num_bonds += 2;
           ++btop_i;
 
@@ -309,11 +334,27 @@ void Init_Forces_noQEq( reax_system *system, control_params *control,
 
   workspace->realloc.num_bonds = num_bonds;
   workspace->realloc.num_hbonds = num_hbonds;
+  // double tbo = 0;
+  // for (i = 0; i < system->N; i ++)
+  //   printf("bmk: %d %d\n", i, workspace->bond_mark[i]);
 
+
+  printf("%d %d\n", num_bonds, num_hbonds);
   Validate_Lists( system, workspace, lists, data->step,
                   system->n, system->N, system->numH, comm );
-}
+  for (i = 0; i < system->N; i ++){
+    int i_start = Start_Index(i, bonds);
+    int i_stop = End_Index(i, bonds);
+    int pj;
+    for (pj = i_start; pj < i_stop; ++pj){
+      j = bonds->select.bond_list[pj].nbr;
+      //if (i == 190 && j == 203){
+      print_bond(i, bonds->select.bond_list + pj, system);
+      //}
+    }
+  }
 
+}
 
 void Estimate_Storages( reax_system *system, control_params *control,
                         reax_list **lists, int *Htop, int *hb_top,
