@@ -551,12 +551,12 @@ extern "C"{
     rvec dcos_di, dcos_dj, dcos_dk;
   } three_body_interaction_data;
 
-  typedef struct {
-    int nbr;
-    ivec rel_box;
-    double d;
-    rvec dvec;
-  } far_neighbor_data;
+  /* typedef struct { */
+  /*   int nbr; */
+  /*   ivec rel_box; */
+  /*   double d; */
+  /*   rvec dvec; */
+  /* } far_neighbor_data; */
 
   typedef struct {
     int nbr;
@@ -695,7 +695,7 @@ extern "C"{
     bond_data          *bond_list;
     dbond_data         *dbo_list;
     dDelta_data        *dDelta_list;
-    far_neighbor_data  *far_nbr_list;
+    //far_neighbor_data  *far_nbr_list;
     far_neighbor_data_full  *far_nbr_list_full;
     hbond_data         *hbond_list;
   } list_type;

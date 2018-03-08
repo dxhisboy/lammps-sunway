@@ -77,7 +77,7 @@ class PairReaxCSunway : public Pair {
   void create_fix();
   void write_reax_atoms();
   void get_distance(REAXC_SUNWAY_NS::rvec, REAXC_SUNWAY_NS::rvec, double *, REAXC_SUNWAY_NS::rvec *);
-  void set_far_nbr(REAXC_SUNWAY_NS::far_neighbor_data *, int, double, REAXC_SUNWAY_NS::rvec);
+  //void set_far_nbr(REAXC_SUNWAY_NS::far_neighbor_data *, int, double, REAXC_SUNWAY_NS::rvec);
   int estimate_reax_lists();
   int write_reax_lists();
   int write_reax_full_lists();

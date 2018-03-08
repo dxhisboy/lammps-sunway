@@ -57,7 +57,7 @@ int Tokenize( char* s, char*** tok )
 void *smalloc( rc_bigint n, const char *name, MPI_Comm comm )
 {
   void *ptr;
-
+  printf("smalloc: %s\n", name);
   if( n <= 0 ) {
     fprintf( stderr, "WARNING: trying to allocate %ld bytes for array %s. ",
              n, name );
@@ -80,7 +80,7 @@ void *smalloc( rc_bigint n, const char *name, MPI_Comm comm )
 void *scalloc( rc_bigint n, rc_bigint size, const char *name, MPI_Comm comm )
 {
   void *ptr;
-
+  printf("scalloc %s\n", name);
   if( n <= 0 ) {
     fprintf( stderr, "WARNING: trying to allocate %ld elements for array %s. ",
              n, name );
@@ -109,6 +109,7 @@ void *scalloc( rc_bigint n, rc_bigint size, const char *name, MPI_Comm comm )
 /* safe free */
 void sfree( void *ptr, const char *name )
 {
+  printf("sfree: %s\n", name);
   if( ptr == NULL ) {
     fprintf( stderr, "WARNING: trying to free the already NULL pointer %s!\n",
              name );

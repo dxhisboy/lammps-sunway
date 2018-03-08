@@ -134,10 +134,10 @@ namespace REAXC_SUNWAY_NS{
     enum ensembles { NVE, bNVT, nhNVT, sNPT, iNPT, NPT, ens_N };
 
     enum lists { BONDS, OLD_BONDS, THREE_BODIES,
-                 HBONDS, FAR_NBRS, FAR_NBRS_FULL, DBOS, DDELTAS, LIST_N };
+                 HBONDS, /* FAR_NBRS, */ FAR_NBRS_FULL, DBOS, DDELTAS, LIST_N };
 
     enum interactions { TYP_VOID, TYP_BOND, TYP_THREE_BODY,
-                        TYP_HBOND, TYP_FAR_NEIGHBOR, TYP_FAR_NEIGHBOR_FULL,
+                        TYP_HBOND, /* TYP_FAR_NEIGHBOR, */ TYP_FAR_NEIGHBOR_FULL,
                         TYP_DBO, TYP_DDELTA, TYP_N };
 
     enum message_tags { INIT, UPDATE, BNDRY, UPDATE_BNDRY,

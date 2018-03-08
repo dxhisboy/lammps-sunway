@@ -318,16 +318,16 @@ int Allocate_Workspace( reax_system *system, control_params *control,
 }
 
 
-static void Reallocate_Neighbor_List( reax_list *far_nbrs, int n,
-                                      int num_intrs, MPI_Comm comm )
-{
-  Delete_List( far_nbrs, comm );
-  if(!Make_List( n, num_intrs, TYP_FAR_NEIGHBOR, far_nbrs, comm )){
-    fprintf(stderr, "Problem in initializing far nbrs list. Terminating!\n");
-    MPI_Abort( comm, INSUFFICIENT_MEMORY );
-  }
+// static void Reallocate_Neighbor_List( reax_list *far_nbrs, int n,
+//                                       int num_intrs, MPI_Comm comm )
+// {
+//   // Delete_List( far_nbrs, comm );
+//   // if(!Make_List( n, num_intrs, TYP_FAR_NEIGHBOR, far_nbrs, comm )){
+//   //   fprintf(stderr, "Problem in initializing far nbrs list. Terminating!\n");
+//   //   MPI_Abort( comm, INSUFFICIENT_MEMORY );
+//   // }
 
-}
+// }
 
 static void Reallocate_Neighbor_Full_List(reax_list *far_nbrs_full, int n,
                                           int num_intrs, MPI_Comm comm){
@@ -409,7 +409,7 @@ void ReAllocate( reax_system *system, control_params *control,
   int num_bonds, est_3body, Hflag, ret;
   int renbr, newsize;
   reallocate_data *realloc;
-  reax_list *far_nbrs, *far_nbrs_full;
+  reax_list *far_nbrs_full;
   MPI_Comm comm;
   char msg[200];
 
@@ -457,24 +457,24 @@ void ReAllocate( reax_system *system, control_params *control,
 
   renbr = (data->step - data->prev_steps) % control->reneighbor == 0;
   /* far neighbors */
-  if( renbr ) {
-    far_nbrs = *lists + FAR_NBRS;
-    far_nbrs_full = *lists + FAR_NBRS_FULL;
-    if( Nflag || realloc->num_far >= far_nbrs->num_intrs * DANGER_ZONE ) {
-      if( realloc->num_far > far_nbrs->num_intrs ) {
-        fprintf( stderr, "step%d-ran out of space on far_nbrs: top=%d, max=%d",
-                 data->step, realloc->num_far, far_nbrs->num_intrs );
-        MPI_Abort( comm, INSUFFICIENT_MEMORY );
-      }
+  // if( renbr ) {
+  //   //far_nbrs = *lists + FAR_NBRS;
+  //   far_nbrs_full = *lists + FAR_NBRS_FULL;
+  //   if( Nflag || realloc->num_far >= far_nbrs_full->num_intrs * DANGER_ZONE ) {
+  //     if( realloc->num_far > far_nbrs_full->num_intrs ) {
+  //       fprintf( stderr, "step%d-ran out of space on far_nbrs: top=%d, max=%d",
+  //                data->step, realloc->num_far, far_nbrs_full->num_intrs );
+  //       MPI_Abort( comm, INSUFFICIENT_MEMORY );
+  //     }
 
-      newsize = static_cast<int>
-        (MAX( realloc->num_far*safezone, mincap*MIN_NBRS ));
+  //     newsize = static_cast<int>
+  //       (MAX( realloc->num_far*safezone, mincap*MIN_NBRS ));
 
-      Reallocate_Neighbor_List( far_nbrs, system->total_cap, newsize, comm );
-      Reallocate_Neighbor_List( far_nbrs_full, system->total_cap, newsize, comm );
-      realloc->num_far = 0;
-    }
-  }
+  //     //Reallocate_Neighbor_List( far_nbrs, system->total_cap, newsize, comm );
+  //     Reallocate_Neighbor_Full_List( far_nbrs_full, system->total_cap, newsize, comm );
+  //     realloc->num_far = 0;
+  //   }
+  // }
 
   /* hydrogen bonds list */
   if( control->hbond_cut > 0 ) {

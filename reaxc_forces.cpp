@@ -342,17 +342,17 @@ void Init_Forces_noQEq( reax_system *system, control_params *control,
   printf("%d %d\n", num_bonds, num_hbonds);
   Validate_Lists( system, workspace, lists, data->step,
                   system->n, system->N, system->numH, comm );
-  for (i = 0; i < system->N; i ++){
-    int i_start = Start_Index(i, bonds);
-    int i_stop = End_Index(i, bonds);
-    int pj;
-    for (pj = i_start; pj < i_stop; ++pj){
-      j = bonds->select.bond_list[pj].nbr;
-      //if (i == 190 && j == 203){
-      print_bond(i, bonds->select.bond_list + pj, system);
-      //}
-    }
-  }
+  // for (i = 0; i < system->N; i ++){
+  //   int i_start = Start_Index(i, bonds);
+  //   int i_stop = End_Index(i, bonds);
+  //   int pj;
+  //   for (pj = i_start; pj < i_stop; ++pj){
+  //     j = bonds->select.bond_list[pj].nbr;
+  //     //if (i == 190 && j == 203){
+  //     print_bond(i, bonds->select.bond_list + pj, system);
+  //     //}
+  //   }
+  // }
 
 }
 

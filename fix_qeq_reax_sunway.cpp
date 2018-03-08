@@ -39,6 +39,8 @@
 #include "citeme.h"
 #include "error.h"
 #include "reaxc_defs_sunway.h"
+#include "sunway.h"
+#include "gptl.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -383,7 +385,7 @@ void FixQEqReaxSunway::init()
 
 void FixQEqReaxSunway::init_list(int id, NeighList *ptr)
 {
-  list = ptr;
+    list = ptr;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -487,6 +489,7 @@ void FixQEqReaxSunway::init_storage()
 
 void FixQEqReaxSunway::pre_force(int vflag)
 {
+  GPTLstart("fix qeq reax pre force");
   double t_start, t_end;
 
   if (update->ntimestep % nevery) return;
@@ -501,19 +504,23 @@ void FixQEqReaxSunway::pre_force(int vflag)
   if (atom->nmax > nmax) reallocate_storage();
   if (n > n_cap*DANGER_ZONE || m_fill > m_cap*DANGER_ZONE)
     reallocate_matrix();
-
+  GPTLstart("fix qeq reax pre force init matvec");
   init_matvec();
-
+  GPTLstop("fix qeq reax pre force init matvec");
+  GPTLstart("fix qeq reax pre force CG");
   matvecs_s = CG(b_s, s);    	// CG on s - parallel
   matvecs_t = CG(b_t, t);       // CG on t - parallel
+  GPTLstop("fix qeq reax pre force CG");
   matvecs = matvecs_s + matvecs_t;
 
+  GPTLstart("fix qeq reax pre force calculate_Q");
   calculate_Q();
-
+  GPTLstop("fix qeq reax pre force calculate_Q");
   if (comm->me == 0) {
     t_end = MPI_Wtime();
     qeq_time = t_end - t_start;
   }
+  GPTLstop("fix qeq reax pre force");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -535,8 +542,9 @@ void FixQEqReaxSunway::min_pre_force(int vflag)
 void FixQEqReaxSunway::init_matvec()
 {
   /* fill-in H matrix */
+  GPTLstart("init matvec compute_H");
   compute_H();
-
+  GPTLstop("init matvec compute_H");
   int nn, ii, i;
   int *ilist;
 
@@ -695,20 +703,27 @@ int FixQEqReaxSunway::CG( double *b, double *x)
   imax = 200;
 
   pack_flag = 1;
+  GPTLstart("CG sparse matvec");
   sparse_matvec( &H, x, q);
+  GPTLstop("CG sparse matvec");
   comm->reverse_comm_fix(this); //Coll_Vector( q );
 
+  GPTLstart("CG vector sum");
   vector_sum( r , 1.,  b, -1., q, nn);
-
+  GPTLstop("CG vector sum");
   for (jj = 0; jj < nn; ++jj) {
     j = ilist[jj];
     if (atom->mask[j] & groupbit)
       d[j] = r[j] * Hdia_inv[j]; //pre-condition
   }
 
+  GPTLstart("CG parallel norm");
   b_norm = parallel_norm( b, nn);
+  GPTLstop("CG parallel norm");
+  GPTLstart("CG parallel dot");
   sig_new = parallel_dot( r, d, nn);
-
+  GPTLstop("CG parallel dot");
+  GPTLstart("CG main loop");
   for (i = 1; i < imax && sqrt(sig_new) / b_norm > tolerance; ++i) {
     comm->forward_comm_fix(this); //Dist_vector( d );
     sparse_matvec( &H, d, q );
@@ -733,7 +748,7 @@ int FixQEqReaxSunway::CG( double *b, double *x)
     beta = sig_new / sig_old;
     vector_sum( d, 1., p, beta, d, nn );
   }
-
+  GPTLstop("CG main loop");
   if (i >= imax && comm->me == 0) {
     char str[128];
     sprintf(str,"Fix qeq/reax CG convergence failed after %d iterations "

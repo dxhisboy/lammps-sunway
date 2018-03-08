@@ -141,12 +141,13 @@ PairReaxCSunway::~PairReaxCSunway()
 
     // deallocate reax data-structures
 
-    if( control->tabulate ) Deallocate_Lookup_Tables( system );
+    //if( control->tabulate ) Deallocate_Lookup_Tables( system );
 
     if( control->hbond_cut > 0 )  Delete_List( lists+HBONDS, world );
     Delete_List( lists+BONDS, world );
     Delete_List( lists+THREE_BODIES, world );
-    Delete_List( lists+FAR_NBRS, world );
+    Delete_List( lists+FAR_NBRS_FULL, world );
+    // Delete_List( lists+FAR_NBRS, world );
 
     DeAllocate_Workspace( control, workspace );
     DeAllocate_System( system );
@@ -461,9 +462,9 @@ void PairReaxCSunway::setup( )
     write_reax_atoms();
 
     int num_nbrs = estimate_reax_lists();
-    if(!Make_List(system->total_cap, num_nbrs, TYP_FAR_NEIGHBOR,
-                  lists+FAR_NBRS, world))
-      error->all(FLERR,"Pair reax/c problem in far neighbor list");
+    // if(!Make_List(system->total_cap, num_nbrs, TYP_FAR_NEIGHBOR,
+    //               lists+FAR_NBRS, world))
+    //   error->all(FLERR,"Pair reax/c problem in far neighbor list");
     if(!Make_List(system->total_cap, num_nbrs, TYP_FAR_NEIGHBOR_FULL,
                   lists+FAR_NBRS_FULL, world))
       error->all(FLERR,"Pair reax/c problem in far neighbor full list");
@@ -493,7 +494,7 @@ void PairReaxCSunway::setup( )
     ReAllocate( system, control, data, workspace, &lists, mpi_data );
   }
 
-  bigint local_ngroup = list->inum;
+  bigint local_ngroup = listfull->inum;
   MPI_Allreduce( &local_ngroup, &ngroup, 1, MPI_LMP_BIGINT, MPI_SUM, world );
 }
 
@@ -694,109 +695,27 @@ void PairReaxCSunway::get_distance( rvec xj, rvec xi, double *d_sqr, rvec *dvec 
 
 /* ---------------------------------------------------------------------- */
 
-void PairReaxCSunway::set_far_nbr( far_neighbor_data *fdest,
-                              int j, double d, rvec dvec )
-{
-  fdest->nbr = j;
-  fdest->d = d;
-  rvec_Copy( fdest->dvec, dvec );
-  ivec_MakeZero( fdest->rel_box );
-}
+// void PairReaxCSunway::set_far_nbr( far_neighbor_data *fdest,
+//                               int j, double d, rvec dvec )
+// {
+//   fdest->nbr = j;
+//   fdest->d = d;
+//   rvec_Copy( fdest->dvec, dvec );
+//   ivec_MakeZero( fdest->rel_box );
+// }
 
 /* ---------------------------------------------------------------------- */
 
 int PairReaxCSunway::estimate_reax_lists()
 {
   return system->N * system->maxfar / 2;
-  int itr_i, itr_j, i, j;
-  int num_nbrs;//, num_marked;
-  int *ilist, *jlist, *numneigh, **firstneigh;//, *marked;
-  double d_sqr;
-  rvec dvec;
-  double **x;
-
-  int mincap = system->mincap;
-  double safezone = system->safezone;
-
-  x = atom->x;
-  ilist = list->ilist;
-  numneigh = list->numneigh;
-  firstneigh = list->firstneigh;
-
-  num_nbrs = 0;
-  //num_marked = 0;
-  //marked = (int*) calloc( system->N, sizeof(int) );
-
-  int numall = list->inum + list->gnum;
-  int num_allnbrs = 0;
-  for( itr_i = 0; itr_i < numall; ++itr_i ){
-    i = ilist[itr_i];
-    num_allnbrs += numneigh[i];
-    // marked[i] = 1;
-    // ++num_marked;
-    jlist = firstneigh[i];
-
-    for( itr_j = 0; itr_j < numneigh[i]; ++itr_j ){
-      j = jlist[itr_j];
-      j &= NEIGHMASK;
-      get_distance( x[j], x[i], &d_sqr, &dvec );
-
-      if( d_sqr <= SQR(control->nonb_cut) )
-        ++num_nbrs;
-    }
-  }
-  //free( marked );
-
-  return static_cast<int> (MAX( num_nbrs*safezone, mincap*MIN_NBRS ));
 }
 
 /* ---------------------------------------------------------------------- */
 
 int PairReaxCSunway::write_reax_lists()
 {
-  int itr_i, itr_j, i, j;
-  int num_nbrs;
-  int *ilist, *jlist, *numneigh, **firstneigh;
-  double d_sqr;
-  rvec dvec;
-  double *dist, **x;
-  reax_list *far_nbrs, *far_nbrs_full;
-  far_neighbor_data *far_list, far_nbrs_fulllist;
-
-  x = atom->x;
-  ilist = list->ilist;
-  numneigh = list->numneigh;
-  firstneigh = list->firstneigh;
-
-  far_nbrs = lists + FAR_NBRS;
-  far_list = far_nbrs->select.far_nbr_list;
-
-  num_nbrs = 0;
-  dist = (double*) calloc( system->N, sizeof(double) );
-
-  int numall = list->inum + list->gnum;
-
-  for( itr_i = 0; itr_i < numall; ++itr_i ){
-    i = ilist[itr_i];
-    jlist = firstneigh[i];
-    Set_Start_Index( i, num_nbrs, far_nbrs );
-
-    for( itr_j = 0; itr_j < numneigh[i]; ++itr_j ){
-      j = jlist[itr_j];
-      j &= NEIGHMASK;
-      get_distance( x[j], x[i], &d_sqr, &dvec );
-      if( d_sqr <= (control->nonb_cut*control->nonb_cut) ){
-        dist[j] = sqrt( d_sqr );
-        set_far_nbr( &far_list[num_nbrs], j, dist[j], dvec );
-        ++num_nbrs;
-      }
-    }
-    Set_End_Index( i, num_nbrs, far_nbrs );
-  }
-
-  free( dist );
-
-  return num_nbrs;
+  return system->N * system->maxfar / 2;
 }
 
 int PairReaxCSunway::write_reax_full_lists()
@@ -820,7 +739,7 @@ int PairReaxCSunway::write_reax_full_lists()
 
   num_nbrs = 0;
 
-  int numall = list->inum + list->gnum;
+  int numall = listfull->inum + listfull->gnum;
   
   write_lists_param_t pm;
   pm.numall = numall;
@@ -923,7 +842,8 @@ double PairReaxCSunway::memory_usage()
   bytes += lists->num_intrs * sizeof(bond_data);
   bytes += lists->num_intrs * sizeof(dbond_data);
   bytes += lists->num_intrs * sizeof(dDelta_data);
-  bytes += lists->num_intrs * sizeof(far_neighbor_data);
+  //
+  bytes += lists->num_intrs * sizeof(far_neighbor_data_full);
   bytes += lists->num_intrs * sizeof(hbond_data);
 
   if(fixspecies_flag)

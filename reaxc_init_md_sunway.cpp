@@ -268,14 +268,14 @@ namespace REAXC_SUNWAY_NS{
       MPI_Abort( mpi_data->world, CANNOT_INITIALIZE );
     }
 
-    if( control->tabulate ) {
-      if( Init_Lookup_Tables( system, control, workspace, mpi_data, msg ) == FAILURE ) {
-        fprintf( stderr, "p%d: %s\n", system->my_rank, msg );
-        fprintf( stderr, "p%d: couldn't create lookup table! terminating.\n",
-                 system->my_rank );
-        MPI_Abort( mpi_data->world, CANNOT_INITIALIZE );
-      }
-    }
+    // if( control->tabulate ) {
+    //   if( Init_Lookup_Tables( system, control, workspace, mpi_data, msg ) == FAILURE ) {
+    //     fprintf( stderr, "p%d: %s\n", system->my_rank, msg );
+    //     fprintf( stderr, "p%d: couldn't create lookup table! terminating.\n",
+    //              system->my_rank );
+    //     MPI_Abort( mpi_data->world, CANNOT_INITIALIZE );
+    //   }
+    // }
 
 
     Init_Force_Functions( control );

@@ -77,12 +77,12 @@ int Make_List(int n, int num_intrs, int type, reax_list *l, MPI_Comm comm)
       smalloc( l->num_intrs * sizeof(dDelta_data), "list:dDeltas", comm );
     break;
 
-  case TYP_FAR_NEIGHBOR:
-    if (l->select.far_nbr_list) sfree(l->select.far_nbr_list,"list:far_nbrs");
-    l->select.far_nbr_list = (far_neighbor_data*)
-      smalloc(l->num_intrs * sizeof(far_neighbor_data), "list:far_nbrs", comm);
-    //puts("Make far nbr list");
-    break;
+  // case TYP_FAR_NEIGHBOR:
+  //   if (l->select.far_nbr_list) sfree(l->select.far_nbr_list,"list:far_nbrs");
+  //   l->select.far_nbr_list = (far_neighbor_data*)
+  //     smalloc(l->num_intrs * sizeof(far_neighbor_data), "list:far_nbrs", comm);
+  //   //puts("Make far nbr list");
+  //   break;
 
   case TYP_FAR_NEIGHBOR_FULL:
     if (l->select.far_nbr_list_full) sfree(l->select.far_nbr_list_full, "list:far_nbrs_full");
@@ -126,11 +126,11 @@ void Delete_List( reax_list *l, MPI_Comm comm )
     sfree( l->select.hbond_list, "list:hbonds" );
     l->select.hbond_list = NULL;
     break;
-  case TYP_FAR_NEIGHBOR:
-    sfree( l->select.far_nbr_list, "list:far_nbrs" );
-    l->select.far_nbr_list = NULL;
-    //puts("Del far nbr list");
-    break;
+  // case TYP_FAR_NEIGHBOR:
+  //   sfree( l->select.far_nbr_list, "list:far_nbrs" );
+  //   l->select.far_nbr_list = NULL;
+  //   //puts("Del far nbr list");
+  //   break;
   case TYP_FAR_NEIGHBOR_FULL:
     sfree( l->select.far_nbr_list_full, "list:far_nbrs_full" );
     l->select.far_nbr_list_full = NULL;

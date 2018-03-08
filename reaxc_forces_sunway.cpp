@@ -794,14 +794,14 @@ namespace REAXC_SUNWAY_NS{
     reax_list *far_nbrs;
     single_body_parameters *sbp_i, *sbp_j;
     two_body_parameters *twbp;
-    far_neighbor_data *nbr_pj;
+    far_neighbor_data_full *nbr_pj;
     reax_atom *atom_i, *atom_j;
 
     int mincap = system->mincap;
     double safezone = system->safezone;
     double saferzone = system->saferzone;
 
-    far_nbrs = *lists + FAR_NBRS;
+    far_nbrs = *lists + FAR_NBRS_FULL;
     *Htop = 0;
     memset( hb_top, 0, sizeof(int) * system->local_cap );
     memset( bond_top, 0, sizeof(int) * system->total_cap );
@@ -818,7 +818,6 @@ namespace REAXC_SUNWAY_NS{
       if( i < system->n ) {
         local = 1;
         cutoff = control->nonb_cut;
-        ++(*Htop);
         ihb = sbp_i->p_hbond;
       }
       else {
@@ -828,7 +827,7 @@ namespace REAXC_SUNWAY_NS{
       }
 
       for( pj = start_i; pj < end_i; ++pj ) {
-        nbr_pj = &( far_nbrs->select.far_nbr_list[pj] );
+        nbr_pj = &( far_nbrs->select.far_nbr_list_full[pj] );
         j = nbr_pj->nbr;
         atom_j = &(system->my_atoms[j]);
 
@@ -840,17 +839,12 @@ namespace REAXC_SUNWAY_NS{
           twbp = &(system->reax_param.tbp[type_i][type_j]);
 
           if( local ) {
-            if( j < system->n || atom_i->orig_id < atom_j->orig_id ) //tryQEq ||1
-              ++(*Htop);
-
             /* hydrogen bond lists */
             if( control->hbond_cut > 0.1 && (ihb==1 || ihb==2) &&
                 nbr_pj->d <= control->hbond_cut ) {
               jhb = sbp_j->p_hbond;
               if( ihb == 1 && jhb == 2 )
                 ++hb_top[i];
-              else if( j < system->n && ihb == 2 && jhb == 1 )
-                ++hb_top[j];
             }
           }
 
@@ -879,7 +873,6 @@ namespace REAXC_SUNWAY_NS{
 
             if( BO >= control->bo_cut ) {
               ++bond_top[i];
-              ++bond_top[j];
             }
           }
         }

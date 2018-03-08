@@ -259,106 +259,106 @@ namespace REAXC_SUNWAY_NS{
 
   }
 
-  int BOp( storage *workspace, reax_list *bonds, double bo_cut,
-           int i, int btop_i, far_neighbor_data *nbr_pj,
-           single_body_parameters *sbp_i, single_body_parameters *sbp_j,
-           two_body_parameters *twbp ) {
-    int j, btop_j;
-    double r2, C12, C34, C56;
-    double Cln_BOp_s, Cln_BOp_pi, Cln_BOp_pi2;
-    double BO, BO_s, BO_pi, BO_pi2;
-    bond_data *ibond, *jbond;
-    bond_order_data *bo_ij, *bo_ji;
+  // int BOp( storage *workspace, reax_list *bonds, double bo_cut,
+  //          int i, int btop_i, far_neighbor_data *nbr_pj,
+  //          single_body_parameters *sbp_i, single_body_parameters *sbp_j,
+  //          two_body_parameters *twbp ) {
+  //   int j, btop_j;
+  //   double r2, C12, C34, C56;
+  //   double Cln_BOp_s, Cln_BOp_pi, Cln_BOp_pi2;
+  //   double BO, BO_s, BO_pi, BO_pi2;
+  //   bond_data *ibond, *jbond;
+  //   bond_order_data *bo_ij, *bo_ji;
 
-    j = nbr_pj->nbr;
-    r2 = SQR(nbr_pj->d);
+  //   j = nbr_pj->nbr;
+  //   r2 = SQR(nbr_pj->d);
 
-    if( sbp_i->r_s > 0.0 && sbp_j->r_s > 0.0 ) {
-      C12 = twbp->p_bo1 * pow( nbr_pj->d / twbp->r_s, twbp->p_bo2 );
-      BO_s = (1.0 + bo_cut) * exp( C12 );
-    }
-    else BO_s = C12 = 0.0;
+  //   if( sbp_i->r_s > 0.0 && sbp_j->r_s > 0.0 ) {
+  //     C12 = twbp->p_bo1 * pow( nbr_pj->d / twbp->r_s, twbp->p_bo2 );
+  //     BO_s = (1.0 + bo_cut) * exp( C12 );
+  //   }
+  //   else BO_s = C12 = 0.0;
 
-    if( sbp_i->r_pi > 0.0 && sbp_j->r_pi > 0.0 ) {
-      C34 = twbp->p_bo3 * pow( nbr_pj->d / twbp->r_p, twbp->p_bo4 );
-      BO_pi = exp( C34 );
-    }
-    else BO_pi = C34 = 0.0;
+  //   if( sbp_i->r_pi > 0.0 && sbp_j->r_pi > 0.0 ) {
+  //     C34 = twbp->p_bo3 * pow( nbr_pj->d / twbp->r_p, twbp->p_bo4 );
+  //     BO_pi = exp( C34 );
+  //   }
+  //   else BO_pi = C34 = 0.0;
 
-    if( sbp_i->r_pi_pi > 0.0 && sbp_j->r_pi_pi > 0.0 ) {
-      C56 = twbp->p_bo5 * pow( nbr_pj->d / twbp->r_pp, twbp->p_bo6 );
-      BO_pi2= exp( C56 );
-    }
-    else BO_pi2 = C56 = 0.0;
+  //   if( sbp_i->r_pi_pi > 0.0 && sbp_j->r_pi_pi > 0.0 ) {
+  //     C56 = twbp->p_bo5 * pow( nbr_pj->d / twbp->r_pp, twbp->p_bo6 );
+  //     BO_pi2= exp( C56 );
+  //   }
+  //   else BO_pi2 = C56 = 0.0;
 
-    /* Initially BO values are the uncorrected ones, page 1 */
-    BO = BO_s + BO_pi + BO_pi2;
+  //   /* Initially BO values are the uncorrected ones, page 1 */
+  //   BO = BO_s + BO_pi + BO_pi2;
 
-    if( BO >= bo_cut ) {
-      /****** bonds i-j and j-i ******/
-      ibond = &( bonds->select.bond_list[btop_i] );
-      btop_j = End_Index( j, bonds );
-      jbond = &(bonds->select.bond_list[btop_j]);
+  //   if( BO >= bo_cut ) {
+  //     /****** bonds i-j and j-i ******/
+  //     ibond = &( bonds->select.bond_list[btop_i] );
+  //     btop_j = End_Index( j, bonds );
+  //     jbond = &(bonds->select.bond_list[btop_j]);
 
-      ibond->nbr = j;
-      jbond->nbr = i;
-      ibond->d = nbr_pj->d;
-      jbond->d = nbr_pj->d;
-      rvec_Copy( ibond->dvec, nbr_pj->dvec );
-      rvec_Scale( jbond->dvec, -1, nbr_pj->dvec );
-      ivec_Copy( ibond->rel_box, nbr_pj->rel_box );
-      ivec_Scale( jbond->rel_box, -1, nbr_pj->rel_box );
-      ibond->dbond_index = btop_i;
-      jbond->dbond_index = btop_i;
-      ibond->sym_index = btop_j;
-      jbond->sym_index = btop_i;
-      Set_End_Index( j, btop_j+1, bonds );
+  //     ibond->nbr = j;
+  //     jbond->nbr = i;
+  //     ibond->d = nbr_pj->d;
+  //     jbond->d = nbr_pj->d;
+  //     rvec_Copy( ibond->dvec, nbr_pj->dvec );
+  //     rvec_Scale( jbond->dvec, -1, nbr_pj->dvec );
+  //     ivec_Copy( ibond->rel_box, nbr_pj->rel_box );
+  //     ivec_Scale( jbond->rel_box, -1, nbr_pj->rel_box );
+  //     ibond->dbond_index = btop_i;
+  //     jbond->dbond_index = btop_i;
+  //     ibond->sym_index = btop_j;
+  //     jbond->sym_index = btop_i;
+  //     Set_End_Index( j, btop_j+1, bonds );
 
-      bo_ij = &( ibond->bo_data );
-      bo_ji = &( jbond->bo_data );
-      bo_ji->BO = bo_ij->BO = BO;
-      bo_ji->BO_s = bo_ij->BO_s = BO_s;
-      bo_ji->BO_pi = bo_ij->BO_pi = BO_pi;
-      bo_ji->BO_pi2 = bo_ij->BO_pi2 = BO_pi2;
+  //     bo_ij = &( ibond->bo_data );
+  //     bo_ji = &( jbond->bo_data );
+  //     bo_ji->BO = bo_ij->BO = BO;
+  //     bo_ji->BO_s = bo_ij->BO_s = BO_s;
+  //     bo_ji->BO_pi = bo_ij->BO_pi = BO_pi;
+  //     bo_ji->BO_pi2 = bo_ij->BO_pi2 = BO_pi2;
 
-      /* Bond Order page2-3, derivative of total bond order prime */
-      Cln_BOp_s = twbp->p_bo2 * C12 / r2;
-      Cln_BOp_pi = twbp->p_bo4 * C34 / r2;
-      Cln_BOp_pi2 = twbp->p_bo6 * C56 / r2;
+  //     /* Bond Order page2-3, derivative of total bond order prime */
+  //     Cln_BOp_s = twbp->p_bo2 * C12 / r2;
+  //     Cln_BOp_pi = twbp->p_bo4 * C34 / r2;
+  //     Cln_BOp_pi2 = twbp->p_bo6 * C56 / r2;
 
-      /* Only dln_BOp_xx wrt. dr_i is stored here, note that
-         dln_BOp_xx/dr_i = -dln_BOp_xx/dr_j and all others are 0 */
-      rvec_Scale(bo_ij->dln_BOp_s,-bo_ij->BO_s*Cln_BOp_s,ibond->dvec);
-      rvec_Scale(bo_ij->dln_BOp_pi,-bo_ij->BO_pi*Cln_BOp_pi,ibond->dvec);
-      rvec_Scale(bo_ij->dln_BOp_pi2,
-                 -bo_ij->BO_pi2*Cln_BOp_pi2,ibond->dvec);
-      rvec_Scale(bo_ji->dln_BOp_s, -1., bo_ij->dln_BOp_s);
-      rvec_Scale(bo_ji->dln_BOp_pi, -1., bo_ij->dln_BOp_pi );
-      rvec_Scale(bo_ji->dln_BOp_pi2, -1., bo_ij->dln_BOp_pi2 );
+  //     /* Only dln_BOp_xx wrt. dr_i is stored here, note that
+  //        dln_BOp_xx/dr_i = -dln_BOp_xx/dr_j and all others are 0 */
+  //     rvec_Scale(bo_ij->dln_BOp_s,-bo_ij->BO_s*Cln_BOp_s,ibond->dvec);
+  //     rvec_Scale(bo_ij->dln_BOp_pi,-bo_ij->BO_pi*Cln_BOp_pi,ibond->dvec);
+  //     rvec_Scale(bo_ij->dln_BOp_pi2,
+  //                -bo_ij->BO_pi2*Cln_BOp_pi2,ibond->dvec);
+  //     rvec_Scale(bo_ji->dln_BOp_s, -1., bo_ij->dln_BOp_s);
+  //     rvec_Scale(bo_ji->dln_BOp_pi, -1., bo_ij->dln_BOp_pi );
+  //     rvec_Scale(bo_ji->dln_BOp_pi2, -1., bo_ij->dln_BOp_pi2 );
 
-      rvec_Scale( bo_ij->dBOp,
-                  -(bo_ij->BO_s * Cln_BOp_s +
-                    bo_ij->BO_pi * Cln_BOp_pi +
-                    bo_ij->BO_pi2 * Cln_BOp_pi2), ibond->dvec );
-      rvec_Scale( bo_ji->dBOp, -1., bo_ij->dBOp );
+  //     rvec_Scale( bo_ij->dBOp,
+  //                 -(bo_ij->BO_s * Cln_BOp_s +
+  //                   bo_ij->BO_pi * Cln_BOp_pi +
+  //                   bo_ij->BO_pi2 * Cln_BOp_pi2), ibond->dvec );
+  //     rvec_Scale( bo_ji->dBOp, -1., bo_ij->dBOp );
 
-      rvec_Add( workspace->dDeltap_self[i], bo_ij->dBOp );
-      rvec_Add( workspace->dDeltap_self[j], bo_ji->dBOp );
+  //     rvec_Add( workspace->dDeltap_self[i], bo_ij->dBOp );
+  //     rvec_Add( workspace->dDeltap_self[j], bo_ji->dBOp );
 
-      bo_ij->BO_s -= bo_cut;
-      bo_ij->BO -= bo_cut;
-      bo_ji->BO_s -= bo_cut;
-      bo_ji->BO -= bo_cut;
-      workspace->total_bond_order[i] += bo_ij->BO; //currently total_BOp
-      workspace->total_bond_order[j] += bo_ji->BO; //currently total_BOp
-      bo_ij->Cdbo = bo_ij->Cdbopi = bo_ij->Cdbopi2 = 0.0;
-      bo_ji->Cdbo = bo_ji->Cdbopi = bo_ji->Cdbopi2 = 0.0;
+  //     bo_ij->BO_s -= bo_cut;
+  //     bo_ij->BO -= bo_cut;
+  //     bo_ji->BO_s -= bo_cut;
+  //     bo_ji->BO -= bo_cut;
+  //     workspace->total_bond_order[i] += bo_ij->BO; //currently total_BOp
+  //     workspace->total_bond_order[j] += bo_ji->BO; //currently total_BOp
+  //     bo_ij->Cdbo = bo_ij->Cdbopi = bo_ij->Cdbopi2 = 0.0;
+  //     bo_ji->Cdbo = bo_ji->Cdbopi = bo_ji->Cdbopi2 = 0.0;
 
-      return 1;
-    }
+  //     return 1;
+  //   }
 
-    return 0;
-  }
+  //   return 0;
+  // }
 
 
   void BO( reax_system *system, control_params *control, simulation_data *data,
