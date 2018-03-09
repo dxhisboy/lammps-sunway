@@ -115,6 +115,7 @@ class FixQEqReaxSunway : public Fix {
   virtual void init_matvec();
   void init_SUNWAY_H();
   virtual void compute_H();
+  virtual void compute_H_Full();
   double calculate_H(double,double);
   virtual void calculate_Q();
 

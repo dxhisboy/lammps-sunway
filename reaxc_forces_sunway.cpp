@@ -902,10 +902,14 @@ namespace REAXC_SUNWAY_NS{
     //   Init_Forces_noQEq( system, control, data, workspace,
     //                      lists, out_control, comm );
     // else{
+    GPTLstart("reaxc init forces noqeq full");
     Init_Forces_noQEq_Full( system, control, data, workspace,
                             lists, out_control, comm );
+    GPTLstop("reaxc init forces noqeq full");
+    GPTLstart("reaxc init forces noqeq hb");
     Init_Forces_noQEq_HB_Full( system, control, data, workspace,
                                lists, out_control, comm );
+    GPTLstop("reaxc init forces noqeq hb");
     //}
     //int i;
     sort_bonds(*lists + BONDS, system);

@@ -61,13 +61,13 @@ void *smalloc( rc_bigint n, const char *name, MPI_Comm comm )
 {
   void *ptr;
   int rank;
-  // MPI_Comm_rank(comm, &rank);
-  // if (n > (1L << 30))
-  //   printf("rank=%d\t%s: %lldG\n", rank, name, n >> 30);
-  // else if (n > (1L << 20))
-  //   printf("rank=%d\t%s: %lldM\n", rank, name, n >> 20);
-  // else if (n > (1L << 10))
-  //   printf("rank=%d\t%s: %lldK\n", rank, name, n >> 10);
+  MPI_Comm_rank(comm, &rank);
+  if (n > (1L << 30))
+    printf("rank=%d\t%s: %lldG\n", rank, name, n >> 30);
+  else if (n > (1L << 20))
+    printf("rank=%d\t%s: %lldM\n", rank, name, n >> 20);
+  else if (n > (1L << 10))
+    printf("rank=%d\t%s: %lldK\n", rank, name, n >> 10);
   if( n <= 0 ) {
     fprintf( stderr, "WARNING: trying to allocate %ld bytes for array %s. ",
              n, name );
@@ -90,14 +90,14 @@ void *smalloc( rc_bigint n, const char *name, MPI_Comm comm )
 void *scalloc( rc_bigint n, rc_bigint size, const char *name, MPI_Comm comm )
 {
   void *ptr;
-  // int rank;
-  // MPI_Comm_rank(comm, &rank);
-  // if (n > (1L << 30))
-  //   printf("rank=%d\t%s: %lldG\n", rank, name, n >> 30);
-  // else if (n > (1L << 20))
-  //   printf("rank=%d\t%s: %lldM\n", rank, name, n >> 20);
-  // else if (n > (1L << 10))
-  //   printf("rank=%d\t%s: %lldK\n", rank, name, n >> 10);
+  int rank;
+  MPI_Comm_rank(comm, &rank);
+  if (n > (1L << 30))
+    printf("rank=%d\t%s: %lldG\n", rank, name, n >> 30);
+  else if (n > (1L << 20))
+    printf("rank=%d\t%s: %lldM\n", rank, name, n >> 20);
+  else if (n > (1L << 10))
+    printf("rank=%d\t%s: %lldK\n", rank, name, n >> 10);
 
   if( n <= 0 ) {
     fprintf( stderr, "WARNING: trying to allocate %ld elements for array %s. ",

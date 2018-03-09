@@ -238,7 +238,7 @@ void PairReaxCSunway::settings(int narg, char **arg)
   system->mincap = MIN_CAP;
   system->safezone = SAFE_ZONE;
   system->saferzone = SAFER_ZONE;
-  system->maxfar = 1024;
+  system->maxfar = 512;
   // process optional keywords
 
   int iarg = 1;
@@ -395,10 +395,10 @@ void PairReaxCSunway::init_style( )
   // built whenever re-neighboring occurs
 
   int irequest;
-  irequest = neighbor->request(this,instance_me);
-  neighbor->requests[irequest]->id = 0;
-  neighbor->requests[irequest]->newton = 2;
-  neighbor->requests[irequest]->ghost = 1;
+  // irequest = neighbor->request(this,instance_me);
+  // neighbor->requests[irequest]->id = 0;
+  // neighbor->requests[irequest]->newton = 2;
+  // neighbor->requests[irequest]->ghost = 1;
 
   irequest = neighbor->request(this,instance_me);
   neighbor->requests[irequest]->id = 1;

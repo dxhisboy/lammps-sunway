@@ -307,15 +307,15 @@ void FixQEqReaxSunway::allocate_matrix()
     safezone = SAFE_ZONE;
   }
 
-  n = atom->nlocal;
+  n = atom->nlocal + atom->nghost;
   n_cap = MAX( (int)(n * safezone), mincap);
 
   // determine the total space for the H matrix
 
   if (reaxc) {
-    inum = reaxc->list->inum;
-    ilist = reaxc->list->ilist;
-    numneigh = reaxc->list->numneigh;
+    inum = reaxc->listfull->inum;
+    ilist = reaxc->listfull->ilist;
+    numneigh = reaxc->listfull->numneigh;
   } else {
     inum = list->inum;
     ilist = list->ilist;
@@ -368,11 +368,11 @@ void FixQEqReaxSunway::init()
   // need a half neighbor list w/ Newton off and ghost neighbors
   // built whenever re-neighboring occurs
 
-  int irequest = neighbor->request(this,instance_me);
-  neighbor->requests[irequest]->pair = 0;
-  neighbor->requests[irequest]->fix = 1;
-  neighbor->requests[irequest]->newton = 2;
-  neighbor->requests[irequest]->ghost = 1;
+  // int irequest = neighbor->request(this,instance_me);
+  // neighbor->requests[irequest]->pair = 0;
+  // neighbor->requests[irequest]->fix = 1;
+  // neighbor->requests[irequest]->newton = 2;
+  // neighbor->requests[irequest]->ghost = 1;
 
   init_shielding();
   init_taper();
@@ -471,7 +471,7 @@ void FixQEqReaxSunway::init_storage()
   int NN;
 
   if (reaxc)
-    NN = reaxc->list->inum + reaxc->list->gnum;
+    NN = reaxc->listfull->inum + reaxc->listfull->gnum;
   else
     NN = list->inum + list->gnum;
 
@@ -543,14 +543,14 @@ void FixQEqReaxSunway::init_matvec()
 {
   /* fill-in H matrix */
   GPTLstart("init matvec compute_H");
-  compute_H();
+  compute_H_Full();
   GPTLstop("init matvec compute_H");
   int nn, ii, i;
   int *ilist;
 
   if (reaxc) {
-    nn = reaxc->list->inum;
-    ilist = reaxc->list->ilist;
+    nn = reaxc->listfull->inum;
+    ilist = reaxc->listfull->ilist;
   } else {
     nn = list->inum;
     ilist = list->ilist;
@@ -600,10 +600,10 @@ void FixQEqReaxSunway::compute_H()
   int *mask = atom->mask;
 
   if (reaxc) {
-    inum = reaxc->list->inum;
-    ilist = reaxc->list->ilist;
-    numneigh = reaxc->list->numneigh;
-    firstneigh = reaxc->list->firstneigh;
+    inum = reaxc->listfull->inum;
+    ilist = reaxc->listfull->ilist;
+    numneigh = reaxc->listfull->numneigh;
+    firstneigh = reaxc->listfull->firstneigh;
   } else {
     inum = list->inum;
     ilist = list->ilist;
@@ -662,6 +662,111 @@ void FixQEqReaxSunway::compute_H()
   }
 }
 
+static inline int llf(double dx, double dy, double dz){
+  double SMALL = 0.0001;
+  if (dz < -SMALL) return 1;
+  if (dz < SMALL){
+    if (dy < -SMALL) return 1;
+    if (dy < SMALL && dx < -SMALL) return 1;
+  }
+  return 0;
+}
+static inline int urb(double dx, double dy, double dz){
+  double SMALL = 0.0001;
+  if (dz > SMALL) return 1;
+  if (dz > -SMALL){
+    if (dy > SMALL) return 1;
+    if (dy > -SMALL && dx > SMALL) return 1;
+  }
+  return 0;
+}
+
+void FixQEqReaxSunway::compute_H_Full()
+{
+  int inum, jnum, *ilist, *jlist, *numneigh, **firstneigh;
+  int i, j, ii, jj, flag;
+  double dx, dy, dz, r_sqr;
+  const double SMALL = 0.0001;
+
+  int *type = atom->type;
+  tagint *tag = atom->tag;
+  double **x = atom->x;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (reaxc) {
+    inum = reaxc->listfull->inum + reaxc->listfull->gnum;
+    ilist = reaxc->listfull->ilist;
+    numneigh = reaxc->listfull->numneigh;
+    firstneigh = reaxc->listfull->firstneigh;
+  } else {
+    inum = list->inum;
+    ilist = list->ilist;
+    numneigh = list->numneigh;
+    firstneigh = list->firstneigh;
+  }
+
+  // fill in the H matrix
+  m_fill = 0;
+  r_sqr = 0;
+  double swbsq = swb * swb;
+  for (ii = 0; ii < inum; ii++) {
+    i = ilist[ii];
+    if (mask[i] & groupbit) {
+      jlist = firstneigh[i];
+      jnum = numneigh[i];
+      H.firstnbr[i] = m_fill;
+
+      for (jj = 0; jj < jnum; jj++) {
+        j = jlist[jj];
+
+        dx = x[j][0] - x[i][0];
+        dy = x[j][1] - x[i][1];
+        dz = x[j][2] - x[i][2];
+        r_sqr = SQR(dx) + SQR(dy) + SQR(dz);
+
+        // flag = 0;
+        // if (r_sqr <= SQR(swb)) {
+        //   if (j < n) flag = 1;
+        //   else if (tag[i] < tag[j]) flag = 1;
+        //   else if (tag[i] == tag[j]) {
+        //     if (dz > SMALL) flag = 1;
+        //     else if (fabs(dz) < SMALL) {
+        //       if (dy > SMALL) flag = 1;
+        //       else if (fabs(dy) < SMALL && dx > SMALL)
+        //         flag = 1;
+	//     }
+	//   }
+	// }
+        if (r_sqr <= swbsq){
+          if (i >= nlocal && j >= nlocal) continue;
+          if (i >= nlocal){
+            if (tag[j] > tag[i]) continue;
+            if (tag[j] == tag[i] && urb(dx, dy, dz)) continue;
+          }
+          if (j >= nlocal){
+            if (tag[i] > tag[j]) continue;
+            if (tag[i] == tag[j] && llf(dx, dy, dz)) continue;
+          }
+          //if (flag) {
+          H.jlist[m_fill] = j;
+          H.val[m_fill] = calculate_H( sqrt(r_sqr), shld[type[i]][type[j]]);
+          m_fill++;
+        }
+        //}
+      }
+      H.numnbrs[i] = m_fill - H.firstnbr[i];
+    }
+  }
+
+  if (m_fill >= H.m) {
+    char str[128];
+    sprintf(str,"H matrix size has been exceeded: m_fill=%d H.m=%d\n",
+            m_fill, H.m);
+    error->warning(FLERR,str);
+    error->all(FLERR,"Fix qeq/reax has insufficient QEq matrix size");
+  }
+}
+
 /* ---------------------------------------------------------------------- */
 
 double FixQEqReaxSunway::calculate_H( double r, double gamma)
@@ -693,8 +798,8 @@ int FixQEqReaxSunway::CG( double *b, double *x)
   int nn, jj;
   int *ilist;
   if (reaxc) {
-    nn = reaxc->list->inum;
-    ilist = reaxc->list->ilist;
+    nn = reaxc->listfull->inum;
+    ilist = reaxc->listfull->ilist;
   } else {
     nn = list->inum;
     ilist = list->ilist;
@@ -726,27 +831,36 @@ int FixQEqReaxSunway::CG( double *b, double *x)
   GPTLstart("CG main loop");
   for (i = 1; i < imax && sqrt(sig_new) / b_norm > tolerance; ++i) {
     comm->forward_comm_fix(this); //Dist_vector( d );
+    GPTLstart("CG sparse matvec");
     sparse_matvec( &H, d, q );
+    GPTLstop("CG sparse matvec");
     comm->reverse_comm_fix(this); //Coll_vector( q );
 
+    GPTLstart("CG parallel dot");
     tmp = parallel_dot( d, q, nn);
+    GPTLstop("CG parallel dot");
     alpha = sig_new / tmp;
 
+    GPTLstart("CG vector add");
     vector_add( x, alpha, d, nn );
     vector_add( r, -alpha, q, nn );
-
+    GPTLstop("CG vector add");
     // pre-conditioning
+    GPTLstart("CG pre cond");
     for (jj = 0; jj < nn; ++jj) {
       j = ilist[jj];
       if (atom->mask[j] & groupbit)
         p[j] = r[j] * Hdia_inv[j];
     }
-
+    GPTLstop("CG pre cond");
     sig_old = sig_new;
+    GPTLstart("CG parallel dot");
     sig_new = parallel_dot( r, p, nn);
-
+    GPTLstop("CG parallel dot");
+    GPTLstart("CG vector sum");
     beta = sig_new / sig_old;
     vector_sum( d, 1., p, beta, d, nn );
+    GPTLstop("CG vector sum");
   }
   GPTLstop("CG main loop");
   if (i >= imax && comm->me == 0) {
@@ -769,9 +883,9 @@ void FixQEqReaxSunway::sparse_matvec( sparse_matrix *A, double *x, double *b)
   int *ilist;
 
   if (reaxc) {
-    nn = reaxc->list->inum;
-    NN = reaxc->list->inum + reaxc->list->gnum;
-    ilist = reaxc->list->ilist;
+    nn = reaxc->listfull->inum;
+    NN = reaxc->listfull->inum + reaxc->listfull->gnum;
+    ilist = reaxc->listfull->ilist;
   } else {
     nn = list->inum;
     NN = list->inum + list->gnum;
@@ -790,13 +904,13 @@ void FixQEqReaxSunway::sparse_matvec( sparse_matrix *A, double *x, double *b)
       b[i] = 0;
   }
 
-  for (ii = 0; ii < nn; ++ii) {
+  for (ii = 0; ii < NN; ++ii) {
     i = ilist[ii];
     if (atom->mask[i] & groupbit) {
       for (itr_j=A->firstnbr[i]; itr_j<A->firstnbr[i]+A->numnbrs[i]; itr_j++) {
         j = A->jlist[itr_j];
         b[i] += A->val[itr_j] * x[j];
-        b[j] += A->val[itr_j] * x[i];
+        //b[j] += A->val[itr_j] * x[i];
       }
     }
   }
@@ -815,8 +929,8 @@ void FixQEqReaxSunway::calculate_Q()
   int *ilist;
 
   if (reaxc) {
-    nn = reaxc->list->inum;
-    ilist = reaxc->list->ilist;
+    nn = reaxc->listfull->inum;
+    ilist = reaxc->listfull->ilist;
   } else {
     nn = list->inum;
     ilist = list->ilist;
@@ -1008,7 +1122,7 @@ double FixQEqReaxSunway::parallel_norm( double *v, int n)
   int *ilist;
 
   if (reaxc)
-    ilist = reaxc->list->ilist;
+    ilist = reaxc->listfull->ilist;
   else
     ilist = list->ilist;
 
@@ -1036,7 +1150,7 @@ double FixQEqReaxSunway::parallel_dot( double *v1, double *v2, int n)
   int *ilist;
 
   if (reaxc)
-    ilist = reaxc->list->ilist;
+    ilist = reaxc->listfull->ilist;
   else
     ilist = list->ilist;
 
@@ -1064,7 +1178,7 @@ double FixQEqReaxSunway::parallel_vector_acc( double *v, int n)
   int *ilist;
 
   if (reaxc)
-    ilist = reaxc->list->ilist;
+    ilist = reaxc->listfull->ilist;
   else
     ilist = list->ilist;
 
@@ -1090,7 +1204,7 @@ void FixQEqReaxSunway::vector_sum( double* dest, double c, double* v,
   int *ilist;
 
   if (reaxc)
-    ilist = reaxc->list->ilist;
+    ilist = reaxc->listfull->ilist;
   else
     ilist = list->ilist;
 
@@ -1109,7 +1223,7 @@ void FixQEqReaxSunway::vector_add( double* dest, double c, double* v, int k)
   int *ilist;
 
   if (reaxc)
-    ilist = reaxc->list->ilist;
+    ilist = reaxc->listfull->ilist;
   else
     ilist = list->ilist;
 
