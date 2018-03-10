@@ -28,7 +28,10 @@ extern "C"{
   typedef struct pair_tersoff_compute_param_t{
     int *ilist, *numneigh, **firstneigh;
     int *firstshort;
+    double (*fend)[4];
+    int *fdone;
     short_neigh_t *shortlist;
+    int *shortidx;
     //global params
     int *elem2param, *map;
     tersoff_param_t *params;
