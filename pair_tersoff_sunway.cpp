@@ -78,6 +78,9 @@ PairTersoffSunway::~PairTersoffSunway()
     memory->destroy(setflag);
     memory->destroy(cutsq);
     memory->destroy(neighshort);
+    memory->destroy(fend);
+    memory->destroy(ftmp);
+    memory->destroy(fdone);
     delete [] map;
   }
 }
@@ -165,6 +168,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
     cparams[i].gamma       = params[i].gamma      ;
     cparams[i].powerm      = params[i].powerm     ;
     cparams[i].powern      = params[i].powern     ;
+    cparams[i].half_powern_inv = 1 / (2.0 * params[i].powern);
     cparams[i].beta        = params[i].beta       ;
     cparams[i].biga        = params[i].biga       ;
     cparams[i].bigb        = params[i].bigb       ;
@@ -496,6 +500,9 @@ void PairTersoffSunway::allocate()
   memory->create(setflag,n+1,n+1,"pair:setflag");
   memory->create(cutsq,n+1,n+1,"pair:cutsq");
   memory->create(neighshort,maxshort,"pair:neighshort");
+  memory->create(fend, atom->nmax * maxshort + 1, "pair:fend");
+  memory->create(ftmp, atom->nmax + 1, "pair:ftmp");
+  memory->create(fdone, atom->nmax, "pair:fdone");
   map = new int[n+1];
 }
 

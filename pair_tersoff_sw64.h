@@ -7,7 +7,7 @@ extern "C"{
     double lam1,lam2,lam3;
     double c,d,h;
     double gamma,powerm;
-    double powern,beta;
+    double powern,beta,half_powern_inv;
     double biga,bigb,bigd,bigr,bigdinv,c2divd2;
     double cut,cutsq;
     double c1,c2,c3,c4;
@@ -28,7 +28,7 @@ extern "C"{
   typedef struct pair_tersoff_compute_param_t{
     int *ilist, *numneigh, **firstneigh;
     int *firstshort;
-    double (*fend)[4];
+    double (*fend)[4], (*ftmp)[4];
     int *fdone;
     short_neigh_t *shortlist;
     int *shortidx;

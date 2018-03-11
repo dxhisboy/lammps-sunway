@@ -12,7 +12,6 @@
 #include <simd.h>
 extern SLAVE_FUN(pair_tersoff_compute_attractive_para)(void*);
 
-                                                      //#include <unistd.h>
 int r = 0;
 void waitint(int *ptr){
   while (1){
@@ -29,9 +28,11 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
     athread_init();
   long fend_base = (long)malloc(sizeof(double) * pm->firstshort[pm->ntotal] * 4 + 32);
   long ftmp_base = (long)calloc(pm->nlocal * 4 + 4, sizeof(double));
+  /* long fend_base = (long)pm->fend; */
+  /* long ftmp_base = (long)pm->ftmp; */
   pm->fend = (void*)((fend_base + 31) & (~31));
-  pm->fdone = calloc(pm->ntotal, sizeof(int));
   double (*ftmp)[4] = (void*)((ftmp_base + 31) & (~31));
+  pm->fdone = calloc(pm->ntotal, sizeof(int));
   GPTLstart("attractive athread");
   athread_spawn(pair_tersoff_compute_attractive_para, pm);
   int ist, ied, ii;
@@ -64,20 +65,17 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
         simd_load(fend2, fend[jj + 2]);
         simd_load(fend3, fend[jj + 3]);
         if (j0 < nlocal){
-          //simd_print_doublev4(fend0);
           doublev4 ftmp_j;
           simd_load(ftmp_j, ftmp[j0]);
           simd_store(fend0 + ftmp_j, ftmp[j0]);
         }
 
         if (j1 < nlocal && jj + 1 < jend){
-          //simd_print_doublev4(fend1);
           doublev4 ftmp_j;
           simd_load(ftmp_j, ftmp[j1]);
           simd_store(fend1 + ftmp_j, ftmp[j1]);
         }
         if (j2 < nlocal && jj + 2 < jend){
-          //simd_print_doublev4(fend2);
           doublev4 ftmp_j;
           simd_load(ftmp_j, ftmp[j2]);
           simd_store(fend2 + ftmp_j, ftmp[j2]);
@@ -107,14 +105,9 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   free((void*)fend_base);
   free((void*)ftmp_base);
   free(ftmp);
-  /* if (++r == 10 && pm->rank == 0) */
-  /*   lwpf_finish(stdout); */
 }
 #endif
 #ifdef CPE
-/* #define LWPF_KERNELS _K(ALL) K(JLOOP) K(JKLOOP) K(JKLOAD) K(ATTRACTIVE) K(ATTRACTIVE_JK) */
-/* #define LWPF_UNIT U(TERSOFF) */
-/* #include "lwpf.h" */
 
 #include <math.h>
 #include "poly_math.h"
@@ -208,7 +201,7 @@ inline void ters_attractive_unroll(double prefactor,
   double hcth = param->h - cos_theta;
   double numerator = -2.0 * ters_c * hcth;
   double denominator = 1.0/(ters_d + hcth*hcth);
-  gijk = param->gamma * (1.0 + ters_c / ters_d - ters_c * denominator);
+  gijk = param->gamma * (1.0 + param->c2divd2 - ters_c * denominator);
   gijk_d = param->gamma * numerator * denominator * denominator;
 
   vec3_scaleadd(-cos_theta,rij_hat,rik_hat,dcosdrj);
@@ -239,14 +232,11 @@ double zeta_unroll(tersoff_param_t *param, double rsqij, double rsqik,
   inv_sqrt(rsqik, rikinv);
   rij = rijinv * rsqij;
   rik = rikinv * rsqik;
-  /* rij = sqrt(rsqij); */
-  /* rik = sqrt(rsqik); */
   costheta = (delrij[0]*delrik[0] + delrij[1]*delrik[1] +
               delrij[2]*delrik[2]) * (rijinv*rikinv);
 
   arg = param->lam3 * (rij - rik);
   if (param->powermint == 3) arg = arg * arg * arg;
-  //else arg = param->lam3 * (rij-rik);
 
   if (arg > 69.0776) ex_delr = 1.e30;
   else if (arg < -69.0776) ex_delr = 0.0;
@@ -257,13 +247,13 @@ double zeta_unroll(tersoff_param_t *param, double rsqij, double rsqik,
   double fc;
   if (rik < ters_R-ters_D) fc = 1.0;
   else if (rik > ters_R+ters_D) fc = 0.0;
-  else fc =  0.5*(1.0 - p_sinnpi_pid(MY_PI2*(rik - ters_R)/ters_D));
+  else fc =  0.5*(1.0 - p_sinnpi_pid(MY_PI2*(rik - ters_R) * param->bigdinv));
  
   double gijk;
   const double ters_c = param->c * param->c;
   const double ters_d = param->d * param->d;
   const double hcth = param->h - costheta;
-  gijk =  param->gamma*(1.0 + ters_c/ters_d - ters_c / (ters_d + hcth*hcth));
+  gijk =  param->gamma*(1.0 + param->c2divd2/* ters_c/ters_d */ - ters_c / (ters_d + hcth*hcth));
 
   return fc * gijk * ex_delr;
 }
@@ -271,8 +261,9 @@ double zeta_unroll(tersoff_param_t *param, double rsqij, double rsqik,
 inline void force_zeta_unroll(tersoff_param_t *param, double rsq, double zeta_ij,
                        double *fforce, double *prefactor, double *eng)
 {
-  double r, fa, fa_d, bij, bij_d, fc, fc_d;
-  r = sqrt(rsq);
+  double r, rinv, fa, fa_d, bij, bij_d, fc, fc_d;
+  inv_sqrt(rsq, rinv);
+  r = rsq * rinv;
 
   double ters_R = param->bigr;
   double ters_D = param->bigd;
@@ -289,8 +280,8 @@ inline void force_zeta_unroll(tersoff_param_t *param, double rsq, double zeta_ij
   }
   else
   {
-    fc = 0.5*(1.0 - p_sinnpi_pid(MY_PI2*(r - ters_R)/ters_D));
-    fc_d = -(MY_PI4/ters_D) * p_cosnpi_pid(MY_PI2*(r - ters_R)/ters_D);
+    fc = 0.5*(1.0 - p_sinnpi_pid(MY_PI2*(r - ters_R)* param->bigdinv));
+    fc_d = -(MY_PI4* param->bigdinv) * p_cosnpi_pid(MY_PI2*(r - ters_R)* param->bigdinv);
   }
 
   if (r > ters_R + ters_D)
@@ -306,40 +297,46 @@ inline void force_zeta_unroll(tersoff_param_t *param, double rsq, double zeta_ij
   
   double tmp = param->beta * zeta_ij;
   double powern = param->powern;
-  double n1 = -1.0/(2.0*powern);
-  double n2 = -1.0-(1.0/(2.0*powern));
+  double half_powern_inv = param->half_powern_inv;
+  /* double n1 = -1.0/(2.0*powern); */
+  /* double n2 = -1.0-(1.0/(2.0*powern)); */
     
   if (tmp > param->c1) 
   {
-    bij = 1.0/sqrt(tmp);
-    bij_d = param->beta * -0.5*p_powd(tmp,-1.5);
+    inv_sqrt(tmp, bij);
+    bij_d = param->beta * -0.5 * bij * bij * bij;
   }
   else if (tmp > param->c2)
   { 
-    bij   = (1.0 - p_powd(tmp,-powern) / (2.0*powern))/sqrt(tmp);
-    bij_d = param->beta * (-0.5*p_powd(tmp, -1.5) *
-            (1.0 - (1.0 + 1.0/(2.0*powern)) * p_powd(tmp,-powern)));
+    double tmpinvsqrt;
+    double tmp_nn = p_powd(tmp, -powern);
+    inv_sqrt(tmp, tmpinvsqrt);
+    bij   = (1.0 - tmp_nn * half_powern_inv) * tmpinvsqrt;
+    bij_d = param->beta * (-0.5 * tmpinvsqrt * tmpinvsqrt * tmpinvsqrt *
+            (1.0 - (1.0 + half_powern_inv) * tmp_nn));
   }
   else if (tmp < param->c4) 
   {
     bij = 1.0; bij_d = 0.0;
   }
   else if (tmp < param->c3)
-  { 
-    bij   = 1.0 - p_powd(tmp,powern) / (2.0*powern);
-    bij_d = -0.5*param->beta * p_powd(tmp,powern-1.0);
+  {
+    double tmp_n = p_powd(tmp, powern);
+    bij   = 1.0 - tmp_n * half_powern_inv;
+    bij_d = -0.5*param->beta * tmp_n;
   }
   else
   { 
     double tmp_n = p_powd(tmp,powern);
-    bij   = p_powd(1.0 + tmp_n, -1.0/(2.0*powern));
-    bij_d = -0.5 * p_powd(1.0+tmp_n, -1.0-(1.0/(2.0*powern)))*tmp_n / zeta_ij;
+    bij   = p_powd(1.0 + tmp_n, -half_powern_inv);
+    //double tmp_n1inv = 1 / (1 + tmp_n);
+    //bij_d = -0.5 * p_powd(1.0+tmp_n, -1.0-(half_powern_inv))*tmp_n / zeta_ij;
+    bij_d = -0.5 * bij * tmp_n / (zeta_ij * (1 + tmp_n));
   }
   
-  *fforce = 0.5*bij*fa_d / r;
+  *fforce = 0.5*bij*fa_d * rinv;
   *prefactor = -0.5*fa * bij_d;
-  *
-eng = 0.5*bij*fa;
+  *eng = 0.5*bij*fa;
 }
 
 

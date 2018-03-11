@@ -62,6 +62,8 @@ class PairTersoffSunway : public Pair {
   int maxparam;                 // max # of parameter sets
   int maxshort;                 // size of short neighbor list array
   int *neighshort;              // short neighbor list array
+  double (*fend)[4], (*ftmp)[4];
+  int *fdone;
   virtual void v_tally3rd(int, int, int, double*, double*, double*, double*);
   virtual void allocate();
   virtual void read_file(char *);
