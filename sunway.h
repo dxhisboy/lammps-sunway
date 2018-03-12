@@ -1,3 +1,5 @@
+#ifndef SUNWAY_H_
+#define SUNWAY_H_
 #ifdef MPE
 #include <athread.h>
 #endif
@@ -23,6 +25,11 @@ extern "C"{
     int *firstneigh;
     //int numneigh;
   } bin_pack_atom_t;
+  typedef struct atom_in_t{
+    double x[3];
+    int type, sbj;
+  } atom_in_t;
+
   typedef struct neigh_param_t{
     //packed bins
     int *binpackhead, *binpacknn;
@@ -88,4 +95,5 @@ extern "C"{
 #endif
 #ifdef __cplusplus
 }
+#endif
 #endif

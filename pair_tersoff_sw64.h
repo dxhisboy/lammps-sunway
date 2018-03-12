@@ -26,10 +26,12 @@ extern "C"{
   } short_neigh_t;
 
   typedef struct pair_tersoff_compute_param_t{
-    int *ilist, *numneigh, **firstneigh;
+    int *ilist, *numneigh, **firstneigh, *numshort;
     int *firstshort;
     double (*fend)[4], (*ftmp)[4];
     int *fdone;
+    long fend_base, fdone_base, ftmp_base, atom_in_base;
+    int maxshort;
     short_neigh_t *shortlist;
     int *shortidx;
     //global params
@@ -37,6 +39,7 @@ extern "C"{
     tersoff_param_t *params;
     //vars to be put back
     double (*x)[3], (*f)[3], (*vatom)[6], *eatom;
+    atom_in_t *atom_in;
     //atom_in_t *atom_in;
     int *type;
     int nlocal, nghost, ntotal, inum, gnum, ntypes, rank, nelements, nparams;

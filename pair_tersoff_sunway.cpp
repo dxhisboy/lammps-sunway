@@ -55,7 +55,7 @@ PairTersoffSunway::PairTersoffSunway(LAMMPS *lmp) : Pair(lmp)
   params = NULL;
   elem2param = NULL;
   map = NULL;
-
+  cutotal = 0;
   maxshort = 10;
   neighshort = NULL;
 }
@@ -73,17 +73,22 @@ PairTersoffSunway::~PairTersoffSunway()
   delete [] elements;
   memory->destroy(params);
   memory->destroy(elem2param);
-
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
     memory->destroy(neighshort);
+    delete [] map;
+  }
+  if (cutotal){
+    memory->destroy(shortidx);
     memory->destroy(fend);
     memory->destroy(ftmp);
     memory->destroy(fdone);
-    delete [] map;
+    memory->destroy(numshort);
+    memory->destroy(atom_in);
   }
 }
+
 #define THIRD 0.3333333333333333333
 void PairTersoffSunway::v_tally3rd(int i, int vflag_global, int vflag_atom,
 				double *fi, double *fj, double *drik, double *drjk)
@@ -111,6 +116,30 @@ void PairTersoffSunway::v_tally3rd(int i, int vflag_global, int vflag_atom,
   }
 }
 
+void PairTersoffSunway::allocate_tmp(int ntotal){
+  if (cutotal){
+    memory->destroy(fend);
+    memory->destroy(ftmp);
+    memory->destroy(fdone);
+    memory->destroy(shortidx);
+    memory->destroy(numshort);
+    memory->destroy(atom_in);
+  } else
+    cutotal = 1;
+  while (cutotal < ntotal)
+    cutotal *= 2;
+  memory->create(shortidx, (cutotal + 1) * maxshort, "pair:shortidx");
+  memory->create(fend, cutotal * maxshort + 1, "pair:fend");
+  memory->create(ftmp, cutotal + 1, "pair:ftmp");
+  memory->create(fdone, cutotal + 8, "pair:fdone");
+  memory->create(numshort, cutotal + 1, "pair:numshort");
+  memory->create(atom_in, cutotal + 8, "pair:atom_in");
+  fend_base = (long)fend;
+  ftmp_base = (long)ftmp;
+  fdone_base = (long)fdone;
+  atom_in_base = (long)atom_in;
+  printf("%lx %lx\n", atom_in, ftmp);
+}
 /* ---------------------------------------------------------------------- */
 void PairTersoffSunway::compute(int eflag, int vflag){
   int i,j,k,ii,jj,kk,inum,jnum,knum, gnum, allnum;
@@ -131,9 +160,11 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   double **f = atom->f;
   int *type = atom->type;
   int nlocal = atom->nlocal;
+  int ntotal = atom->nlocal + atom->nghost;
   int newton_pair = force->newton_pair;
   const double cutshortsq = cutmax*cutmax;
-
+  if (ntotal > cutotal)
+    allocate_tmp(ntotal);
   inum = list->inum;
   gnum = list->gnum;
   allnum = inum + gnum;
@@ -148,15 +179,13 @@ void PairTersoffSunway::compute(int eflag, int vflag){
     neightotal += numneigh[ii];
   }
   short_neigh_t *shortlist;
-  int *shortidx;
+
   tersoff_param_t *cparams;
   //double **prefactor;
   //memory->create(prefactor, neighoff[allnum], 2, "pair:prefactor");
   memory->create(firstshort, allnum + 1, "pair:numshort");
   memory->create(shortlist, neightotal, "pair:shortlist");
-  memory->create(shortidx, neightotal, "pair:neightotal");
   memory->create(cparams, nparams, "pair:cparams");
-  firstshort[0] = 0;
 
   for (i = 0; i < nparams; i ++){
     cparams[i].lam1        = params[i].lam1       ;
@@ -198,10 +227,15 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   }
 
   pair_tersoff_compute_param_t pm;
+  pm.fdone_base = fdone_base;
+  pm.ftmp_base  = ftmp_base;
+  pm.fend_base  = fend_base;
+  pm.atom_in_base = atom_in_base;
   pm.rank       = comm->me;
   pm.ilist      = ilist;
   pm.numneigh   = numneigh;
   pm.firstshort = firstshort;
+  pm.firstneigh = firstneigh;
   pm.shortidx   = shortidx;
   pm.shortlist  = shortlist;
   pm.elem2param = elem2param[0][0];
@@ -240,12 +274,14 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   pm.vflag_atom = vflag_atom;
   pm.eflag_either = eflag_either;
   pm.vflag_either = vflag_either;
-
+  pm.maxshort     = maxshort;
+  pm.numshort     = numshort;
   double fxtmp,fytmp,fztmp;
   int numshorti, numshortj;
   GPTLstart("pair");
   for (ii = 0; ii < allnum; ii ++){
     i = ilist[ii];
+    firstshort[i] = ii * maxshort;
 
     itype = map[type[i]];
     xtmp = x[i][0];
@@ -285,6 +321,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
 	fxtmp += dij[0] * fpair;
 	fytmp += dij[1] * fpair;
 	fztmp += dij[2] * fpair;
+
 	if (evflag) ev_tally_full(i, evdwl, 0.0, fpair, dij[0], dij[1], dij[2]);
       }
     }
@@ -293,7 +330,8 @@ void PairTersoffSunway::compute(int eflag, int vflag){
       f[i][1] += fytmp;
       f[i][2] += fztmp;
     }
-    firstshort[i + 1] = firstshort[i] + numshorti;
+    //firstshort[i + 1] = firstshort[i] + numshorti;
+    numshort[i] = numshorti;
   }
   GPTLstop("pair");
   // GPTLstart("zeta");
@@ -486,7 +524,6 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   //memory->destroy(prefactor);
   memory->destroy(firstshort);
   memory->destroy(shortlist);
-  memory->destroy(shortidx);
   memory->destroy(cparams);
 }
 
@@ -500,10 +537,8 @@ void PairTersoffSunway::allocate()
   memory->create(setflag,n+1,n+1,"pair:setflag");
   memory->create(cutsq,n+1,n+1,"pair:cutsq");
   memory->create(neighshort,maxshort,"pair:neighshort");
-  memory->create(fend, atom->nmax * maxshort + 1, "pair:fend");
-  memory->create(ftmp, atom->nmax + 1, "pair:ftmp");
-  memory->create(fdone, atom->nmax, "pair:fdone");
   map = new int[n+1];
+  allocate_tmp(atom->nmax);
 }
 
 /* ----------------------------------------------------------------------

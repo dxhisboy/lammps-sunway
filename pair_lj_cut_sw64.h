@@ -1,12 +1,9 @@
 #ifndef PAIR_LJ_CUT_SW64_H_
 #define PAIR_LJ_CUT_SW64_H_
+#include "sunway.h"
 #ifdef __cplusplus
 extern "C"{
 #endif
-  typedef struct atom_in_t{
-    double x[3];
-    int type, sbj;
-  } atom_in_t;
   typedef struct pair_lj_cut_compute_param_t{
     int *ilist, *numneigh, **firstneigh;
     //vars to be put back

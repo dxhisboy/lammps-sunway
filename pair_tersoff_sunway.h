@@ -21,7 +21,7 @@ PairStyle(tersoff/sunway,PairTersoffSunway)
 #define LMP_PAIR_TERSOFF_SUNWAY_H
 
 #include "pair.h"
-
+#include "sunway.h"
 namespace LAMMPS_NS {
 
 class PairTersoffSunway : public Pair {
@@ -63,9 +63,13 @@ class PairTersoffSunway : public Pair {
   int maxshort;                 // size of short neighbor list array
   int *neighshort;              // short neighbor list array
   double (*fend)[4], (*ftmp)[4];
-  int *fdone;
+  atom_in_t *atom_in;
+  int *fdone, cutotal;
+  int *shortidx, *numshort;
+  long fend_base, ftmp_base, fdone_base, atom_in_base;
   virtual void v_tally3rd(int, int, int, double*, double*, double*, double*);
   virtual void allocate();
+  virtual void allocate_tmp(int ntotal);
   virtual void read_file(char *);
   virtual void setup_params();
   virtual void repulsive(Param *, double, double &, int, double &);
