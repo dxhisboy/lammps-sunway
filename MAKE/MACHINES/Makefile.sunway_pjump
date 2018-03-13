@@ -18,7 +18,7 @@ DEPFLAGS =	-M
 
 LINK =		mpiCC
 LINKFLAGS =	-hybrid -O3  -g -OPT:IEEE_arithmetic=3
-LIB =           ../libgptl.a
+LIB =           ../libgptl.a ../poly_math_post.o
 SIZE =		size
 
 SLAVE_CC =	sw5cc -slave

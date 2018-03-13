@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include "gptl.h"
 #define ISTEP 128
-
+#define JSTEP 64
 
 #ifdef MPE
 #define LWPF_UNITS U(TERSOFF)
@@ -12,6 +12,7 @@
 #include <simd.h>
 extern SLAVE_FUN(pair_tersoff_compute_attractive_para)(void*);
 extern SLAVE_FUN(pair_tersoff_a2s)(void*);
+extern SLAVE_FUN(pair_tersoff_reduction_force)(void*);
 
 int r = 0;
 void waitint(int *ptr){
@@ -54,12 +55,7 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   int *numshort = pm->numshort;
   intv8 v8_0 = 0;
   doublev4 v4_0 = 0.0;
-  /* for (ii = 0; ii < pm->ntotal; ii += 32){ */
-  /*   simd_store(v8_0, fdone + ii); */
-  /*   simd_store(v8_0, fdone + ii + 8); */
-  /*   simd_store(v8_0, fdone + ii + 16); */
-  /*   simd_store(v8_0, fdone + ii + 24); */
-  /* } */
+
   GPTLstop("tersoff fill");
   athread_join();
   GPTLstop("tersoff a2s");
@@ -120,11 +116,13 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   GPTLstop("attractive athread");
 
   GPTLstart("attractive reduction force");
-  for (ii = 0; ii < pm->nlocal; ii ++){
-    pm->f[ii][0] += ftmp[ii][0];
-    pm->f[ii][1] += ftmp[ii][1];
-    pm->f[ii][2] += ftmp[ii][2];
-  }
+  athread_spawn(pair_tersoff_reduction_force, pm);
+  athread_join();
+  /* for (ii = 0; ii < pm->nlocal; ii ++){ */
+  /*   pm->f[ii][0] += ftmp[ii][0]; */
+  /*   pm->f[ii][1] += ftmp[ii][1]; */
+  /*   pm->f[ii][2] += ftmp[ii][2]; */
+  /* } */
   GPTLstop("attractive reduction force");
 }
 #endif
@@ -167,6 +165,38 @@ inline void vec3_scaleadd(const double k, const double *x,
   z[0] = k*x[0]+y[0];
   z[1] = k*x[1]+y[1];
   z[2] = k*x[2]+y[2];
+}
+
+inline void repulsive_unroll(tersoff_param_t *param, double rsq, double *fforce,
+                             double *eng)
+{
+  double r,tmp_fc,tmp_fc_d,tmp_exp;
+  double ters_R = param->bigr;
+  double ters_D = param->bigd;
+  double Dinv = param->bigdinv;
+  double rinv;
+  inv_sqrt(rsq, rinv);
+  r = rinv * rsq;
+
+  if (r < ters_R-ters_D)
+    {
+      tmp_fc = 1.0;
+      tmp_fc_d = 0.0;
+    }
+  else if (r > ters_R+ters_D)
+    {
+      tmp_fc =  0.0;
+      tmp_fc_d =  0.0;
+    }
+  else
+    {
+      tmp_fc = 0.5*(1.0 - p_sind(MY_PI2*(r - ters_R) * Dinv));
+      tmp_fc_d = -(MY_PI4 * Dinv) * p_cosd(MY_PI2*(r - ters_R) * Dinv);
+    }
+
+  tmp_exp = p_expd(-param->lam1 * r);
+  *fforce = -param->biga * tmp_exp * (tmp_fc_d - tmp_fc*param->lam1) * rinv;
+  *eng = tmp_fc * param->biga * tmp_exp;
 }
 
 inline void ters_attractive_unroll(double prefactor,
@@ -360,31 +390,50 @@ inline void force_zeta_unroll(tersoff_param_t *param, double rsq, double zeta_ij
 #define HALF 0.5
 void ev_tally_global(int i, int j, int nlocal, double evdwl, double fpair,
                      double delx, double dely, double delz,
-                     double *eng_vdwl, double *virial, int eflag_global, int vflag_global)
+                     double *eng_vdwl, double *virial)
 {
   double v[6];
   double factor = 0;
   if (i < nlocal) factor += HALF;
   if (j < nlocal) factor += HALF;
-  if (eflag_global){
-    *eng_vdwl += evdwl * factor;
-  }
-  if (vflag_global){
-    v[0] = delx*delx*fpair;
-    v[1] = dely*dely*fpair;
-    v[2] = delz*delz*fpair;
-    v[3] = delx*dely*fpair;
-    v[4] = delx*delz*fpair;
-    v[5] = dely*delz*fpair;
+  *eng_vdwl += evdwl * factor;
 
-    virial[0] += factor*v[0];
-    virial[1] += factor*v[1];
-    virial[2] += factor*v[2];
-    virial[3] += factor*v[3];
-    virial[4] += factor*v[4];
-    virial[5] += factor*v[5];
-  }
+  v[0] = delx*delx*fpair;
+  v[1] = dely*dely*fpair;
+  v[2] = delz*delz*fpair;
+  v[3] = delx*dely*fpair;
+  v[4] = delx*delz*fpair;
+  v[5] = dely*delz*fpair;
+
+  virial[0] += factor*v[0];
+  virial[1] += factor*v[1];
+  virial[2] += factor*v[2];
+  virial[3] += factor*v[3];
+  virial[4] += factor*v[4];
+  virial[5] += factor*v[5];
+
 }
+void ev_tally_full_global(int i, double evdwl, double fpair,
+                          double delx, double dely, double delz,
+                          double *eng_vdwl, double *virial)
+{
+  double v[6];
+  *eng_vdwl += evdwl * HALF;
+  v[0] = delx*delx*fpair;
+  v[1] = dely*dely*fpair;
+  v[2] = delz*delz*fpair;
+  v[3] = delx*dely*fpair;
+  v[4] = delx*delz*fpair;
+  v[5] = dely*delz*fpair;
+
+  virial[0] += HALF*v[0];
+  virial[1] += HALF*v[1];
+  virial[2] += HALF*v[2];
+  virial[3] += HALF*v[3];
+  virial[4] += HALF*v[4];
+  virial[5] += HALF*v[5];
+}
+
 #define THIRD 0.33333333333333333333333
 void v_tally3rd(int i, int j, int k, int nlocal, int vflag_global, int vflag_atom,
                 double *fi, double *fj, double *drik, double *drjk, double *virial, double (*vatom)[6])
@@ -415,7 +464,13 @@ void v_tally3rd(int i, int j, int k, int nlocal, int vflag_global, int vflag_ato
   }
 }
 
-#define SNSTEP 64
+#define HBIT 10
+#define SBIT 3
+#define LINESIZE (1 << SBIT)
+#define LINECNT (1 << HBIT - SBIT)
+#define MMASK (LINESIZE - 1)
+#define LMASK (LINECNT - 1)
+#include <dma.h>
 void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   pe_init();
   //lwpf_start(ALL);
@@ -443,13 +498,21 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
 
   int map[ntypes + 1];
   int elem2param[nelements][nelements][nelements];
-  tersoff_param_t params[nparams];
+  tersoff_param_t params[nparams], params3[nelements][nelements][nelements];
   int nep3 = nelements * nelements * nelements;
   pe_get(l_pm.map, map, sizeof(int) * (ntypes + 1));
   pe_get(l_pm.elem2param, elem2param, sizeof(int) * nep3);
   pe_get(l_pm.params, params, sizeof(tersoff_param_t) * nparams);
   pe_syn();
 
+  int t1, t2, t3;
+  for (t1 = 0; t1 < nelements; t1 ++){
+    for (t2 = 0; t2 < nelements; t2 ++){
+      for (t3 = 0; t3 < nelements; t3 ++){
+        params3[t1][t2][t3] = params[elem2param[t1][t2][t3]];
+      }
+    }
+  }
   double (*x)[3] = l_pm.x;
   double (*f)[3] = l_pm.f;
   double (*vatom)[6] = l_pm.vatom;
@@ -458,11 +521,17 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int *type = l_pm.type;
   int ii;
   int ist, ied;
-  double fi[ISTEP][3];
+  int *firstneigh_local[ISTEP];
+  int numneigh_local[ISTEP];
+  int jlist_local[ISTEP];
+  int shortidx_local[ISTEP];
+  int numshort_local[ISTEP];
+  double fi[ISTEP][3], xi[ISTEP][3];
   int ti[ISTEP];
   int *numshort = l_pm.numshort;
   int nn[ISTEP];
-  short_neigh_t js[maxshort];
+  //short_neigh_t js[maxshort];
+  short_neigh_t short_neigh[maxshort];
   double fend_stor[maxshort][4];
   double (*fend)[4] = (void*)(((long)fend_stor) + 31 & ~31);
   int fdone[ISTEP];
@@ -473,6 +542,17 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   double *eng_coul = eng_vdwl + 1;
   double *virial = eng_vdwl + 2;
 
+  atom_in_t j_cache[LINECNT][LINESIZE];
+  int j_tag[LINECNT];
+  dma_desc cache_get_desc = 0;
+  volatile int cache_reply = 0;
+  dma_set_mode(&cache_get_desc, PE_MODE);
+  dma_set_size(&cache_get_desc, sizeof(atom_in_t) * LINESIZE);
+  dma_set_op(&cache_get_desc, DMA_GET);
+  dma_set_reply(&cache_get_desc, &cache_reply);
+
+  for (ii = 0; ii < LINECNT; ii ++)
+    j_tag[ii] = -1;
   for (ii = 0; ii < ISTEP; ii ++)
     fdone[ii] = 1;
   for (ist = _MYID * ISTEP; ist < ntotal; ist += ISTEP * 64){
@@ -485,32 +565,87 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       iwe = inum;
     int iwr = iwe - ist;
     int i;
-    //pe_get(x + ist, xi, sizeof(double) * 3 * isz);
+    pe_get(x + ist, xi, sizeof(double) * 3 * isz);
     pe_get(f + ist, fi, sizeof(double) * 3 * isz);
     pe_get(numshort + ist, nn, sizeof(int) * isz);
     pe_get(type + ist, ti, sizeof(int) * isz);
+    pe_get(l_pm.firstneigh + ist, firstneigh_local, sizeof(int*) * isz);
+    pe_get(l_pm.numneigh + ist, numneigh_local, sizeof(int) * isz);
     pe_syn();
 
     for (i = ist; i < ied; i ++){
       int ioff = i - ist;
       int itype = map[ti[ioff]];
-      int *jlist = l_pm.firstneigh[i];
-      int jnum_far = l_pm.numneigh[i];
-
-      short_neigh_t *jlist_short = shortlist + i * maxshort;
-      int jnum = nn[ioff];
-      double fxtmp = 0;
-      double fytmp = 0;
-      double fztmp = 0;
+      int *jlist = firstneigh_local[ioff];
+      int jnum = numneigh_local[ioff];
+      int *idx_short = l_pm.shortidx + i * maxshort;
       int jj;
-      pe_get(jlist_short, js, sizeof(short_neigh_t) * jnum);
+      int numshorti = 0;
+
+      double fxtmp = 0.0;
+      double fytmp = 0.0;
+      double fztmp = 0.0;
+
+      int jst, jed;
+      for (jst = 0; jst < jnum; jst += JSTEP){
+        jed = jst + JSTEP;
+        if (jed > jnum)
+          jed = jnum;
+        int jsz = jed - jst;
+        pe_get(jlist + jst, jlist_local, sizeof(int) * jsz);
+        pe_syn();
+        for (jj = 0; jj < jsz; jj ++){
+          int j = jlist_local[jj];
+          j &= NEIGHMASK;
+          int line = j >> SBIT & LMASK;
+          int tag = j >> HBIT;
+          if (j_tag[line] != tag){
+            int mem = j & ~MMASK;
+            cache_reply = 0;
+            dma_rpl(cache_get_desc, l_pm.atom_in + mem, j_cache[line], cache_reply);
+            while (cache_reply != 1);
+            j_tag[line] = tag;
+          }
+          atom_in_t *jatom = j_cache[line] + (j & MMASK);
+          int jtype = map[jatom->type];
+          double dij[3];
+          dij[0] = xi[ioff][0] - jatom->x[0];
+          dij[1] = xi[ioff][1] - jatom->x[1];
+          dij[2] = xi[ioff][2] - jatom->x[2];
+          double r2ij = dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
+          if (r2ij < l_pm.cutshortsq){
+            short_neigh[numshorti].idx = j;
+            short_neigh[numshorti].type = jtype;
+            short_neigh[numshorti].d[0] = -dij[0];
+            short_neigh[numshorti].d[1] = -dij[1];
+            short_neigh[numshorti].d[2] = -dij[2];
+            short_neigh[numshorti].r2   = r2ij;
+            shortidx_local[numshorti] = j;
+            numshorti ++;
+          }
+          int iparam_ij = elem2param[itype][jtype][jtype];
+          if (r2ij > params[iparam_ij].cutsq) continue;
+          double fpair, evdwl;
+          repulsive_unroll(params + iparam_ij, r2ij, &fpair, &evdwl);
+          if (i < nlocal){
+            fxtmp += dij[0] * fpair;
+            fytmp += dij[1] * fpair;
+            fztmp += dij[2] * fpair;
+            if (l_pm.evflag) ev_tally_full_global(i, evdwl, fpair, dij[0], dij[1], dij[2], eng_vdwl, virial);
+          }
+        }
+      }
+      pe_put(l_pm.shortidx + i * maxshort, shortidx_local, sizeof(int) * numshorti);
+      numshort_local[ioff] = numshorti;
+
       doublev4 v4_0 = 0.0;
-      for (jj = 0; jj < jnum; jj ++){
+      for (jj = 0; jj < numshorti; jj ++){
         simd_store(v4_0, fend[jj]);
       }
-      pe_syn();
-      for (jj = 0; jj < jnum; jj ++){
-        short_neigh_t *jshort = js + jj;
+      //pe_syn();
+      for (jj = 0; jj < numshorti; jj ++){
+        short_neigh_t *jshort = short_neigh + jj;
+
         int jtype = jshort->type;
         int j = jshort->idx;
         double dij[3];
@@ -521,21 +656,19 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         int iparam_ij = elem2param[itype][jtype][jtype];
         if (r2ij >= params[iparam_ij].cutsq) continue;
 
-        short_neigh_t *klist_short = js;
-        int knum = jnum;
         double zeta_ij = 0.0;
 
         int kk;
-        for (kk = 0; kk < knum; kk ++){
+        for (kk = 0; kk < numshorti; kk ++){
           if (jj == kk) continue;
-          short_neigh_t *kshort = klist_short + kk;
+          short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;//map[type[k]];
           int iparam_ijk = elem2param[itype][jtype][ktype];
           double dik[3];
           dik[0] = kshort->d[0];
           dik[1] = kshort->d[1];
           dik[2] = kshort->d[2];
-          double r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
+          double r2ik = kshort->r2;
           if (r2ik >= params[iparam_ijk].cutsq) continue;
           zeta_ij += zeta_unroll(params + iparam_ijk, r2ij, r2ik, dij, dik);
         }
@@ -552,13 +685,12 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         }
         if (l_pm.evflag)
           ev_tally_global(i, j, nlocal, evdwl, -fpair,
-                          -dij[0], -dij[1], -dij[2], eng_vdwl, virial,
-                          l_pm.eflag_global, l_pm.vflag_global);
+                          -dij[0], -dij[1], -dij[2], eng_vdwl, virial);
 
 
-        for (kk = 0; kk < knum; kk ++){
+        for (kk = 0; kk < numshorti; kk ++){
           if (jj == kk) continue;
-          short_neigh_t *kshort = klist_short + kk;
+          short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;
           int k = kshort->idx;
           int iparam_ijk = elem2param[itype][jtype][ktype];
@@ -582,16 +714,19 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           fztmp += tfi[2];
           if (vflag_either) v_tally3rd(i, j, k, nlocal, vflag_global, vflag_atom, tfj, tfk, dij, dik, virial, vatom);
         }
+
       }
-      pe_put(l_pm.fend[i * maxshort], fend, sizeof(double) * jnum * 4);
-      fi[ioff][0] += fxtmp;
-      fi[ioff][1] += fytmp;
-      fi[ioff][2] += fztmp;
+      pe_put(l_pm.fend[i * maxshort], fend, sizeof(double) * numshorti * 4);
+      fi[ioff][0] = fxtmp;
+      fi[ioff][1] = fytmp;
+      fi[ioff][2] = fztmp;
       pe_syn();
     }
     if (iwr > 0){
       pe_put(f + ist, fi, sizeof(double) * iwr * 3);
     }
+    pe_put(l_pm.numshort + ist, numshort_local, sizeof(int) * isz);
+    pe_syn();
     pe_put(l_pm.fdone + ist, fdone, sizeof(int) * isz);
     pe_syn();
 
@@ -641,4 +776,30 @@ void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
   }
 }
 
+void pair_tersoff_reduction_force(pair_tersoff_compute_param_t *pm){
+  pe_init();
+  pair_tersoff_compute_param_t l_pm;
+  pe_get(pm, &l_pm, sizeof(pair_tersoff_compute_param_t));
+  pe_syn();
+  double f[ISTEP][3];
+  double ftmp[ISTEP][4];
+  int ist, ied;
+  for (ist = _MYID * ISTEP; ist < l_pm.nlocal; ist += ISTEP * 64){
+    ied = ist + ISTEP;
+    if (ied > l_pm.nlocal)
+      ied = l_pm.nlocal;
+    int isz = ied - ist;
+    pe_get(l_pm.f[ist], f, sizeof(double) * 3 * isz);
+    pe_get(l_pm.ftmp[ist], ftmp, sizeof(double) * 4 * isz);
+    pe_syn();
+    int ii;
+    for (ii = 0; ii < isz; ii ++){
+      f[ii][0] += ftmp[ii][0];
+      f[ii][1] += ftmp[ii][1];
+      f[ii][2] += ftmp[ii][2];
+    }
+    pe_put(l_pm.f[ist], f, sizeof(double) * 3 * isz);
+    pe_syn();
+  }
+}
 #endif

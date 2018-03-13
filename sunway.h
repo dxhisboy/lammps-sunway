@@ -10,6 +10,7 @@
 #define pe_get(mem, ldm, size) {athread_get(PE_MODE, (mem), (ldm), (size), (void*)&reply, 0, 0, 0); pe_cnt ++;}
 #define pe_put(mem, ldm, size) {athread_put(PE_MODE, (ldm), (mem), (size), (void*)&reply, 0, 0); pe_cnt ++;}
 #define pe_syn() {while (reply != pe_cnt); asm volatile("memb");}
+#define dma_rpl(desc, mem, ldm, reply) asm("dma %0, %1, %2\n\t" : : "r"(desc), "r"(mem), "r"(ldm), "r"(&reply) : "memory");
 #endif
 #ifdef __cplusplus
 extern "C"{

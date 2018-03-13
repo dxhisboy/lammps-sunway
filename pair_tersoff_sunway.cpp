@@ -183,8 +183,8 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   tersoff_param_t *cparams;
   //double **prefactor;
   //memory->create(prefactor, neighoff[allnum], 2, "pair:prefactor");
-  memory->create(firstshort, allnum + 1, "pair:numshort");
-  memory->create(shortlist, neightotal, "pair:shortlist");
+  // memory->create(firstshort, allnum + 1, "pair:numshort");
+  // memory->create(shortlist, neightotal, "pair:shortlist");
   memory->create(cparams, nparams, "pair:cparams");
 
   for (i = 0; i < nparams; i ++){
@@ -227,6 +227,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   }
 
   pair_tersoff_compute_param_t pm;
+  pm.cutshortsq = cutmax * cutmax;
   pm.fdone_base = fdone_base;
   pm.ftmp_base  = ftmp_base;
   pm.fend_base  = fend_base;
@@ -278,243 +279,17 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   pm.numshort     = numshort;
   double fxtmp,fytmp,fztmp;
   int numshorti, numshortj;
-  GPTLstart("pair");
-  for (ii = 0; ii < allnum; ii ++){
-    i = ilist[ii];
-    firstshort[i] = ii * maxshort;
-
-    itype = map[type[i]];
-    xtmp = x[i][0];
-    ytmp = x[i][1];
-    ztmp = x[i][2];
-    fxtmp = fytmp = fztmp = 0.0;
-    jlist = firstneigh[i];
-    jnum = numneigh[i];
-    numshorti = 0;
-    neighshort = shortlist + firstshort[i];
-    int *idxshort = shortidx + firstshort[i];
-    for (jj = 0; jj < jnum; jj ++){
-      j = jlist[jj];
-
-      j &= NEIGHMASK;
-      jtype = map[type[j]];
-      dij[0] = xtmp - x[j][0];
-      dij[1] = ytmp - x[j][1];
-      dij[2] = ztmp - x[j][2];
-
-      r2ij = dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-      if (r2ij < cutshortsq){
-	neighshort[numshorti].idx = j;
-        neighshort[numshorti].type = jtype;
-        neighshort[numshorti].d[0] = -dij[0];
-        neighshort[numshorti].d[1] = -dij[1];
-        neighshort[numshorti].d[2] = -dij[2];
-        neighshort[numshorti].r2 = r2ij;
-        idxshort[numshorti] = j;
-        numshorti ++;
-      }
-      iparam_ij = elem2param[itype][jtype][jtype];
-      if (r2ij > params[iparam_ij].cutsq) continue;
-      repulsive(&params[iparam_ij], r2ij, fpair, eflag, evdwl);
-    
-      if (i < nlocal){
-	fxtmp += dij[0] * fpair;
-	fytmp += dij[1] * fpair;
-	fztmp += dij[2] * fpair;
-
-	if (evflag) ev_tally_full(i, evdwl, 0.0, fpair, dij[0], dij[1], dij[2]);
-      }
-    }
-    if (i < nlocal){
-      f[i][0] += fxtmp;
-      f[i][1] += fytmp;
-      f[i][2] += fztmp;
-    }
-    //firstshort[i + 1] = firstshort[i] + numshorti;
-    numshort[i] = numshorti;
-  }
-  GPTLstop("pair");
-  // GPTLstart("zeta");
-  // for (ii = 0; ii < allnum; ii ++){
-  //   i = ilist[ii];
-  //   itype = map[type[i]];
-  //   xtmp = x[i][0];
-  //   ytmp = x[i][1];
-  //   ztmp = x[i][2];
-  //   fxtmp = fytmp = fztmp = 0.0;
-  //   jnum = firstshort[i + 1] - firstshort[i];
-  //   jlist_short = shortlist + firstshort[i];
-
-  //   for (jj = 0; jj < jnum; jj ++){
-  //     jshort = jlist_short + jj;
-  //     j = jshort->idx;
-  //     jtype = jshort->type;//map[type[j]];
-  //     iparam_ij = elem2param[itype][jtype][jtype];
-  //     dij[0] = jshort->d[0];
-  //     dij[1] = jshort->d[1];
-  //     dij[2] = jshort->d[2];
-  //     dji[0] = -dij[0];
-  //     dji[1] = -dij[1];
-  //     dji[2] = -dij[2];
-
-  //     r2ij = jshort->r2;//dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-  //     if (r2ij >= params[iparam_ij].cutsq) continue;
-
-  //     zeta_ij = zeta_ji = 0.0;
-
-  //     klist_short = shortlist + firstshort[i];
-  //     knum = firstshort[i + 1] - firstshort[i];
-
-  //     //compute zeta_ij
-  //     for (kk = 0; kk < knum; kk ++){
-  //       if (jj == kk) continue;
-  //       kshort = klist_short + kk;
-  //       ktype = kshort->type;//map[type[k]];
-  //       iparam_ijk = elem2param[itype][jtype][ktype];
-
-  //       dik[0] = kshort->d[0];
-  //       dik[1] = kshort->d[1];
-  //       dik[2] = kshort->d[2];
-  //       r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
-  //       if (r2ik >= params[iparam_ijk].cutsq) continue;
-  //       zeta_ij += zeta(params + iparam_ijk, r2ij, r2ik, dij, dik);
-  //     }
-  //     klist_short = shortlist + firstshort[j];
-  //     knum = firstshort[j + 1] - firstshort[j];
-
-  //     //also for zeta_ji
-  //     for (kk = 0; kk < knum; kk ++){
-  //       kshort = klist_short + kk;
-  //       if (kshort->idx == i) continue;
-  //       ktype = kshort->type;//map[type[k]];
-  //       iparam_jik = elem2param[jtype][itype][ktype];
-  //       iparam_jki = elem2param[jtype][ktype][itype];
-  //       djk[0] = kshort->d[0];
-  //       djk[1] = kshort->d[1];
-  //       djk[2] = kshort->d[2];
-  //       r2jk = kshort->r2;//djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
-  //       if (r2jk >= params[iparam_jik].cutsq) continue;
-  //       zeta_ji += zeta(params + iparam_jik, r2ij, r2jk, dji, djk);
-  //     }
-  //     force_zeta(params + iparam_ij, r2ij, zeta_ij, fpair, prefactor_ij, eflag, evdwl);
-  //     if (i < nlocal){
-  //       fxtmp += dij[0] * fpair;
-  //       fytmp += dij[1] * fpair;
-  //       fztmp += dij[2] * fpair;
-       
-  //       if (evflag) ev_tally_full(i, evdwl, 0.0, -fpair, -dij[0], -dij[1], -dij[2]);
-  //     }
-  //     force_zeta(params + iparam_ij, r2ij, zeta_ji, fpair, prefactor_ji, eflag, evdwl);
-  //     if (i < nlocal){
-  //       fxtmp += dij[0] * fpair;
-  //       fytmp += dij[1] * fpair;
-  //       fztmp += dij[2] * fpair;
-  //       if (evflag) ev_tally_full(i, evdwl, 0.0, -fpair, -dij[0], -dij[1], -dij[2]);
-  //     }
-  //     jshort->prefactor_fwd = prefactor_ij;
-  //     jshort->prefactor_rev = prefactor_ji;
-  //     // prefactor[firstshort[i] + jj][0] = prefactor_ij;
-  //     // prefactor[firstshort[i] + jj][1] = prefactor_ji;
-  //   }
-  //   if (i < nlocal){
-  //     f[i][0] += fxtmp;
-  //     f[i][1] += fytmp;
-  //     f[i][2] += fztmp;
-  //   }
-  // }
-  // GPTLstop("zeta");
   GPTLstart("attractive");
-  // for (ii = 0; ii < inum; ii ++){
-  //   i = ilist[ii];
-  //   itype = map[type[i]];
-  //   xtmp = x[i][0];
-  //   ytmp = x[i][1];
-  //   ztmp = x[i][2];
-  //   jlist_short = shortlist + firstshort[i];
-  //   jnum = firstshort[i + 1] - firstshort[i];
-  //   fxtmp = fytmp = fztmp = 0;
-  //   for (jj = 0; jj < jnum; jj ++){
-  //     jshort = jlist_short + jj;
-  //     jtype = jshort->type;//map[type[j]];
-  //     j = jshort->idx;
-  //     iparam_ij = elem2param[itype][jtype][jtype];
-  //     dij[0] = jshort->d[0];
-  //     dij[1] = jshort->d[1];
-  //     dij[2] = jshort->d[2];
-  //     double dji[3];
-  //     dji[0] = -dij[0];
-  //     dji[1] = -dij[1];
-  //     dji[2] = -dij[2];
-
-  //     r2ij = jshort->r2;//dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
-  //     if (r2ij >= params[iparam_ij].cutsq) continue;
-  //     double prefactor_ij = jshort->prefactor_fwd;//prefactor[firstshort[i] + jj][0];
-  //     double prefactor_ji = jshort->prefactor_rev;//prefactor[firstshort[i] + jj][1];
-  //     zeta_ij = zeta_ji = 0.0;
-  //     klist_short = shortlist + firstshort[i];
-  //     knum = firstshort[i + 1] - firstshort[i];
-
-  //     for (kk = 0; kk < knum; kk ++){
-  //       if (jj == kk) continue;
-  //       kshort = klist_short + kk;
-  //       ktype = kshort->type;//map[type[k]];
-  //       iparam_ijk = elem2param[itype][jtype][ktype];
-  //       dik[0] = kshort->d[0];
-  //       dik[1] = kshort->d[1];
-  //       dik[2] = kshort->d[2];
-  //       r2ik = kshort->r2;//dik[0] * dik[0] + dik[1] * dik[1] + dik[2] * dik[2];
-  //       if (r2ik >= params[iparam_ijk].cutsq) continue;
-  //       attractive(params + iparam_ijk, prefactor_ij, r2ij, r2ik, dij, dik, fi, fj, fk);
-  //       fxtmp += fi[0];
-  //       fytmp += fi[1];
-  //       fztmp += fi[2];
-  //       //if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fj, fk, dij, dik);
-  //     }
-
-  //     klist_short = shortlist + firstshort[j];
-  //     knum = firstshort[j + 1] - firstshort[j];
-  //     for (kk = 0; kk < knum; kk ++){
-  //       kshort = klist_short + kk;
-  //       if (kshort->idx == i) continue;
-  //       ktype = kshort->type;//map[type[k]];
-  //       iparam_jik = elem2param[jtype][itype][ktype];
-  //       iparam_jki = elem2param[jtype][ktype][itype];
-  //       djk[0] = kshort->d[0];
-  //       djk[1] = kshort->d[1];
-  //       djk[2] = kshort->d[2];
-  //       r2jk = kshort->r2;//djk[0] * djk[0] + djk[1] * djk[1] + djk[2] * djk[2];
-  //       if (r2jk >= params[iparam_jik].cutsq) continue;
-  //       attractive(params + iparam_jik, prefactor_ji, r2ij, r2jk, dji, djk, fj, fi, fk);
-  //       fxtmp += fi[0];
-  //       fytmp += fi[1];
-  //       fztmp += fi[2];
-  //       //if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fi, fk, dji, djk);
-  //       double prefactor_jk = kshort->prefactor_fwd;//[firstshort[j] + kk][0];
-
-  //       attractive(params + iparam_jki, prefactor_jk, r2jk, r2ij, djk, dji, fj, fk, fi);
-  //       fxtmp += fi[0];
-  //       fytmp += fi[1];
-  //       fztmp += fi[2];
-  //       //if (vflag_either) v_tally3rd(i, vflag_global, vflag_atom, fk, fi, djk, dji);
-  //     }
-  //   }
-  //   // f[i][0] += fxtmp;
-  //   // f[i][1] += fytmp;
-  //   // f[i][2] += fztmp;
-  //   // if (i < 64 && comm->me == 2)
-  //   //   printf("%d %f %f %f\n", i, fxtmp, fytmp, fztmp);
-  // }
   pair_tersoff_compute_attractive(&pm);
-
   GPTLstop("attractive");
   if (eflag_global){
-    eng_vdwl += pm.eng_vdwl;
-    eng_coul += pm.eng_coul;
+    eng_vdwl = pm.eng_vdwl;
+    eng_coul = pm.eng_coul;
   }
   //printf("%d %d\n", vflag_either, vflag_global);
   if (vflag_global){
     for (i = 0; i < 6; i ++){
-      virial[i] += pm.virial[i];
+      virial[i] = pm.virial[i];
     }
   }
   
@@ -522,8 +297,8 @@ void PairTersoffSunway::compute(int eflag, int vflag){
 
   if (vflag_fdotr) virial_fdotr_compute();
   //memory->destroy(prefactor);
-  memory->destroy(firstshort);
-  memory->destroy(shortlist);
+  // memory->destroy(firstshort);
+  // memory->destroy(shortlist);
   memory->destroy(cparams);
 }
 

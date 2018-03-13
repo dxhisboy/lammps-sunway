@@ -20,7 +20,7 @@ extern "C"{
     double c0;                   // added for TersoffMODC
   } tersoff_param_t;
   typedef struct short_neigh_t{
-    double prefactor_fwd, prefactor_rev;
+    //double prefactor_fwd, prefactor_rev;
     double d[3], r2;
     int idx, type;
   } short_neigh_t;
@@ -31,7 +31,7 @@ extern "C"{
     double (*fend)[4], (*ftmp)[4];
     int *fdone;
     long fend_base, fdone_base, ftmp_base, atom_in_base;
-    int maxshort;
+    int maxshort, cutshortsq;
     short_neigh_t *shortlist;
     int *shortidx;
     //global params
