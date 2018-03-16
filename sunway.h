@@ -56,17 +56,22 @@ extern "C"{
   static inline void reg_reduce_inplace_doublev4(doublev4 *arr, int len){
     int i, j;
     doublev4 tmp;
+    doublev4 t0;
     for (i = 1; i < 8; i += i){
       if ((_ROW & i) == i){
         for (j = 0; j < len; j ++)
-          asm("putc %0, %1": : "r"(arr[j]), "r"(_ROW ^ i));
+          asm volatile("vldd %0, 0(%1)\n\t"
+                       "putc %0, %2\n\t"
+                       : "=&r"(t0)
+                       : "r"(arr + j), "r"(_ROW ^ i));
       }
       if ((_ROW & i) == 0){
         for (j = 0; j < len; j ++){
-          asm(
-              "getc %0\n\t"
-              "vaddd %0, %1, %1\n\t"
-              : "=r"(tmp), "+r"(arr[j]));
+          asm volatile("vldd %1, 0(%2)\n\t"
+                       "getc %0\n\t"
+                       "vaddd %0, %1, %1\n\t"
+                       "vstd %1, 0(%2)\n\t"
+                       : "=&r"(tmp), "=&r"(t0) : "r"(arr + j) : "memory");
           //arr[j] += tmp;
         }
       }
@@ -77,21 +82,33 @@ extern "C"{
       for (i = 1; i < 8; i += i){
         if ((_COL & i) == i){
           for (j = 0; j < len; j ++)
-            asm("putr %0, %1": : "r"(arr[j]), "r"(_COL ^ i));
+            asm volatile("vldd %0, 0(%1)\n\t"
+                         "putr %0, %2\n\t"
+                         : "=&r"(t0)
+                         : "r"(arr + j), "r"(_COL ^ i));
+
+          // asm volatile("putr %0, %1": : "r"(arr[j]), "r"(_COL ^ i));
         }
         if ((_COL & i) == 0){
           for (j = 0; j < len; j ++){
+            asm volatile("vldd %1, 0(%2)\n\t"
+                         "getr %0\n\t"
+                         "vaddd %0, %1, %1\n\t"
+                         "vstd %1, 0(%2)\n\t"
+                         : "=&r"(tmp), "=&r"(t0) : "r"(arr + j) : "memory");
+
             /* asm("getr %0\n" : "=r"(tmp)); */
             /* arr[j] += tmp; */
-            asm(
-                "getr %0\n\t" 
-                "vaddd %0, %1, %1\n\t"
-                : "=r"(tmp), "+r"(arr[j]));
+            /* asm volatile( */
+            /*              "getr %0\n\t"  */
+            /*              "vaddd %0, %1, %1\n\t" */
+            /*              : "=r"(tmp), "+r"(arr[j])); */
           }
         }
       }
       athread_syn(ROW_SCOPE, 0xff);
     }
+    athread_syn(ARRAY_SCOPE, 0xffff);
   }
 #endif
 #ifdef __cplusplus

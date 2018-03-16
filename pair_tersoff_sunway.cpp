@@ -283,6 +283,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   pair_tersoff_compute_attractive(&pm);
   GPTLstop("attractive");
   if (eflag_global){
+    //printf("%d %f\n", comm->me, pm.eng_coul);
     eng_vdwl = pm.eng_vdwl;
     eng_coul = pm.eng_coul;
   }
@@ -295,7 +296,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   
   //printf("%d %f\n", comm->me, virial[0]);
 
-  if (vflag_fdotr) virial_fdotr_compute();
+  //if (vflag_fdotr) virial_fdotr_compute();
   //memory->destroy(prefactor);
   // memory->destroy(firstshort);
   // memory->destroy(shortlist);

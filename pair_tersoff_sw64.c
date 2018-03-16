@@ -19,7 +19,7 @@ void waitint(int *ptr){
   while (1){
     int tmp;
     asm ("ldw_nc %0, 0(%1)": "=&r"(tmp): "r"(ptr));
-    if (tmp)
+    if (tmp != -1)
       break;
   }
 }
@@ -72,7 +72,7 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
     ied = ist + ISTEP;
     if (ied > ntotal)
       ied = ntotal;
-    waitint(fdone + ist);
+    waitint(numshort + ist);
     for (ii = ist; ii < ied; ii ++){
       int jj, jend;
       jend = numshort[ii] + ii * maxshort;
@@ -118,11 +118,6 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   GPTLstart("attractive reduction force");
   athread_spawn(pair_tersoff_reduction_force, pm);
   athread_join();
-  /* for (ii = 0; ii < pm->nlocal; ii ++){ */
-  /*   pm->f[ii][0] += ftmp[ii][0]; */
-  /*   pm->f[ii][1] += ftmp[ii][1]; */
-  /*   pm->f[ii][2] += ftmp[ii][2]; */
-  /* } */
   GPTLstop("attractive reduction force");
 }
 #endif
@@ -170,11 +165,11 @@ inline void vec3_scaleadd(const double k, const double *x,
 inline void repulsive_unroll(tersoff_param_t *param, double rsq, double *fforce,
                              double *eng)
 {
-  double r,tmp_fc,tmp_fc_d,tmp_exp;
+  double tmp_fc,tmp_fc_d,tmp_exp;
   double ters_R = param->bigr;
   double ters_D = param->bigd;
   double Dinv = param->bigdinv;
-  double rinv;
+  double r, rinv;
   inv_sqrt(rsq, rinv);
   r = rinv * rsq;
 
@@ -214,8 +209,14 @@ inline void ters_attractive_unroll(double prefactor,
   rij = rijinv * rsqij;
   rik = rikinv * rsqik;
 
-  vec3_scale(rijinv, delrij, rij_hat);
-  vec3_scale(rikinv, delrik, rik_hat);
+  rij_hat[0] = rijinv * delrij[0];
+  rij_hat[1] = rijinv * delrij[1];
+  rij_hat[2] = rijinv * delrij[2];
+
+  rik_hat[0] = rikinv * delrik[0];
+  rik_hat[1] = rikinv * delrik[1];
+  rik_hat[2] = rikinv * delrik[2];
+
   double gijk,gijk_d,ex_delr,ex_delr_d,fc,dfc,cos_theta,tmp;
   double dcosdri[3],dcosdrj[3],dcosdrk[3];
 
@@ -246,7 +247,8 @@ inline void ters_attractive_unroll(double prefactor,
       (rij - rik) * (rij - rik) * ex_delr;
   else ex_delr_d = param->lam3 * ex_delr;
 
-  cos_theta = vec3_dot(rij_hat,rik_hat);
+  cos_theta = rij_hat[0] * rik_hat[0] + rij_hat[1] * rik_hat[1] + rij_hat[2] * rik_hat[2];
+
   double ters_c = param->c * param->c;
   double ters_d = param->d * param->d;
   double hcth = param->h - cos_theta;
@@ -255,22 +257,25 @@ inline void ters_attractive_unroll(double prefactor,
   gijk = param->gamma * (1.0 + param->c2divd2 - ters_c * denominator);
   gijk_d = param->gamma * numerator * denominator * denominator;
 
-  vec3_scaleadd(-cos_theta,rij_hat,rik_hat,dcosdrj);
-  vec3_scale(rijinv,dcosdrj,dcosdrj);
-  vec3_scaleadd(-cos_theta,rik_hat,rij_hat,dcosdrk);
-  vec3_scale(rikinv,dcosdrk,dcosdrk);
+  dcosdrj[0] = (-cos_theta * rij_hat[0] + rik_hat[0]) * rijinv;
+  dcosdrj[1] = (-cos_theta * rij_hat[1] + rik_hat[1]) * rijinv;
+  dcosdrj[2] = (-cos_theta * rij_hat[2] + rik_hat[2]) * rijinv;
 
-  vec3_scale(fc*gijk_d*ex_delr,dcosdrj,drj);
-  vec3_scaleadd(fc*gijk*ex_delr_d,rij_hat,drj,drj);
-  vec3_scale(prefactor,drj,drj);
+  dcosdrk[0] = (-cos_theta * rik_hat[0] + rij_hat[0]) * rikinv;
+  dcosdrk[1] = (-cos_theta * rik_hat[1] + rij_hat[1]) * rikinv;
+  dcosdrk[2] = (-cos_theta * rik_hat[2] + rij_hat[2]) * rikinv;
 
-  vec3_scale(dfc*gijk*ex_delr,rik_hat,drk);
-  vec3_scaleadd(fc*gijk_d*ex_delr,dcosdrk,drk,drk);
-  vec3_scaleadd(-fc*gijk*ex_delr_d,rik_hat,drk,drk);
-  vec3_scale(prefactor,drk,drk);
+  drj[0]=(gijk_d*ex_delr*dcosdrj[0] + gijk*ex_delr_d*rij_hat[0]) * fc * prefactor;
+  drj[1]=(gijk_d*ex_delr*dcosdrj[1] + gijk*ex_delr_d*rij_hat[1]) * fc * prefactor;
+  drj[2]=(gijk_d*ex_delr*dcosdrj[2] + gijk*ex_delr_d*rij_hat[2]) * fc * prefactor;
 
-  vec3_add(drj, drk, dri);
-  vec3_scale(-1, dri, dri);
+  drk[0] = (gijk*(ex_delr*dfc - fc*ex_delr_d)*rik_hat[0] + fc*gijk_d*ex_delr*dcosdrk[0]) * prefactor;
+  drk[1] = (gijk*(ex_delr*dfc - fc*ex_delr_d)*rik_hat[1] + fc*gijk_d*ex_delr*dcosdrk[1]) * prefactor;
+  drk[2] = (gijk*(ex_delr*dfc - fc*ex_delr_d)*rik_hat[2] + fc*gijk_d*ex_delr*dcosdrk[2]) * prefactor;
+
+  dri[0] = -drj[0] - drk[0];
+  dri[1] = -drj[1] - drk[1];
+  dri[2] = -drj[2] - drk[2];
 }
 
 
@@ -304,10 +309,11 @@ double zeta_unroll(tersoff_param_t *param, double rsqij, double rsqik,
   const double ters_c = param->c * param->c;
   const double ters_d = param->d * param->d;
   const double hcth = param->h - costheta;
-  gijk =  param->gamma*(1.0 + param->c2divd2/* ters_c/ters_d */ - ters_c / (ters_d + hcth*hcth));
+  gijk =  param->gamma*(1.0 + param->c2divd2 - ters_c / (ters_d + hcth*hcth));
 
   return fc * gijk * ex_delr;
 }
+
 
 inline void force_zeta_unroll(tersoff_param_t *param, double rsq, double zeta_ij,
                        double *fforce, double *prefactor, double *eng)
@@ -355,25 +361,25 @@ inline void force_zeta_unroll(tersoff_param_t *param, double rsq, double zeta_ij
     inv_sqrt(tmp, bij);
     bij_d = param->beta * -0.5 * bij * bij * bij;
   }
-  else if (tmp > param->c2)
-  { 
-    double tmpinvsqrt;
-    double tmp_nn = p_powd(tmp, -powern);
-    inv_sqrt(tmp, tmpinvsqrt);
-    bij   = (1.0 - tmp_nn * half_powern_inv) * tmpinvsqrt;
-    bij_d = param->beta * (-0.5 * tmpinvsqrt * tmpinvsqrt * tmpinvsqrt *
-            (1.0 - (1.0 + half_powern_inv) * tmp_nn));
-  }
+  /* else if (tmp > param->c2) */
+  /* {  */
+  /*   double tmpinvsqrt; */
+  /*   double tmp_nn = p_powd(tmp, -powern); */
+  /*   inv_sqrt(tmp, tmpinvsqrt); */
+  /*   bij   = (1.0 - tmp_nn * half_powern_inv) * tmpinvsqrt; */
+  /*   bij_d = param->beta * (-0.5 * tmpinvsqrt * tmpinvsqrt * tmpinvsqrt * */
+  /*           (1.0 - (1.0 + half_powern_inv) * tmp_nn)); */
+  /* } */
   else if (tmp < param->c4) 
   {
     bij = 1.0; bij_d = 0.0;
   }
-  else if (tmp < param->c3)
-  {
-    double tmp_n = p_powd(tmp, powern);
-    bij   = 1.0 - tmp_n * half_powern_inv;
-    bij_d = -0.5*param->beta * tmp_n;
-  }
+  /* else if (tmp < param->c3) */
+  /* { */
+  /*   double tmp_n = p_powd(tmp, powern); */
+  /*   bij   = 1.0 - tmp_n * half_powern_inv; */
+  /*   bij_d = -0.5*param->beta * tmp_n; */
+  /* } */
   else
   { 
     double tmp_n = p_powd(tmp,powern);
@@ -567,8 +573,10 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     int i;
     pe_get(x + ist, xi, sizeof(double) * 3 * isz);
     pe_get(f + ist, fi, sizeof(double) * 3 * isz);
+    pe_syn();
     pe_get(numshort + ist, nn, sizeof(int) * isz);
     pe_get(type + ist, ti, sizeof(int) * isz);
+    pe_syn();
     pe_get(l_pm.firstneigh + ist, firstneigh_local, sizeof(int*) * isz);
     pe_get(l_pm.numneigh + ist, numneigh_local, sizeof(int) * isz);
     pe_syn();
@@ -585,7 +593,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       double fxtmp = 0.0;
       double fytmp = 0.0;
       double fztmp = 0.0;
-
       int jst, jed;
       for (jst = 0; jst < jnum; jst += JSTEP){
         jed = jst + JSTEP;
@@ -613,6 +620,11 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           dij[1] = xi[ioff][1] - jatom->x[1];
           dij[2] = xi[ioff][2] - jatom->x[2];
           double r2ij = dij[0] * dij[0] + dij[1] * dij[1] + dij[2] * dij[2];
+          int fc_idx = -1;
+          tersoff_param_t *param_ij = params3[itype][jtype] + jtype;
+          if (r2ij > param_ij->cutsq) continue;
+          double fpair, evdwl;
+          repulsive_unroll(param_ij, r2ij, &fpair, &evdwl);
           if (r2ij < l_pm.cutshortsq){
             short_neigh[numshorti].idx = j;
             short_neigh[numshorti].type = jtype;
@@ -623,10 +635,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
             shortidx_local[numshorti] = j;
             numshorti ++;
           }
-          int iparam_ij = elem2param[itype][jtype][jtype];
-          if (r2ij > params[iparam_ij].cutsq) continue;
-          double fpair, evdwl;
-          repulsive_unroll(params + iparam_ij, r2ij, &fpair, &evdwl);
+
           if (i < nlocal){
             fxtmp += dij[0] * fpair;
             fytmp += dij[1] * fpair;
@@ -637,7 +646,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       }
       pe_put(l_pm.shortidx + i * maxshort, shortidx_local, sizeof(int) * numshorti);
       numshort_local[ioff] = numshorti;
-
       doublev4 v4_0 = 0.0;
       for (jj = 0; jj < numshorti; jj ++){
         simd_store(v4_0, fend[jj]);
@@ -645,7 +653,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       //pe_syn();
       for (jj = 0; jj < numshorti; jj ++){
         short_neigh_t *jshort = short_neigh + jj;
-
         int jtype = jshort->type;
         int j = jshort->idx;
         double dij[3];
@@ -654,27 +661,29 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         dij[2] = jshort->d[2];
         double r2ij = jshort->r2;
         int iparam_ij = elem2param[itype][jtype][jtype];
-        if (r2ij >= params[iparam_ij].cutsq) continue;
+        tersoff_param_t *param_ij_base = params3[itype][jtype];
+        tersoff_param_t *param_ij = param_ij_base + jtype;
+        if (r2ij >= param_ij->cutsq) continue;
 
         double zeta_ij = 0.0;
-
         int kk;
+        double ex_delr[maxshort], gijk_jk[maxshort];
         for (kk = 0; kk < numshorti; kk ++){
           if (jj == kk) continue;
           short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;//map[type[k]];
-          int iparam_ijk = elem2param[itype][jtype][ktype];
+          tersoff_param_t *param_ijk = param_ij_base + ktype;
           double dik[3];
           dik[0] = kshort->d[0];
           dik[1] = kshort->d[1];
           dik[2] = kshort->d[2];
           double r2ik = kshort->r2;
-          if (r2ik >= params[iparam_ijk].cutsq) continue;
-          zeta_ij += zeta_unroll(params + iparam_ijk, r2ij, r2ik, dij, dik);
+          if (r2ik >= param_ijk->cutsq) continue;
+          zeta_ij += zeta_unroll(param_ijk, r2ij, r2ik, dij, dik);
         }
         double evdwl, fpair;
         double prefactor;
-        force_zeta_unroll(params + iparam_ij, r2ij, zeta_ij, &fpair, &prefactor, &evdwl);
+        force_zeta_unroll(param_ij, r2ij, zeta_ij, &fpair, &prefactor, &evdwl);
         fend[jj][0] -= dij[0] * fpair;
         fend[jj][1] -= dij[1] * fpair;
         fend[jj][2] -= dij[2] * fpair;
@@ -693,15 +702,15 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;
           int k = kshort->idx;
-          int iparam_ijk = elem2param[itype][jtype][ktype];
+          tersoff_param_t *param_ijk = param_ij_base + ktype;
           double dik[3];
           dik[0] = kshort->d[0];
           dik[1] = kshort->d[1];
           dik[2] = kshort->d[2];
           double r2ik = kshort->r2;
-          if (r2ik >= params[iparam_ijk].cutsq) continue;
+          if (r2ik >= param_ijk->cutsq) continue;
           double tfi[3], tfj[3], tfk[3];
-          ters_attractive_unroll(prefactor, r2ij, r2ik, dij, dik, tfi, tfj, tfk, params + iparam_ijk);
+          ters_attractive_unroll(prefactor, r2ij, r2ik, dij, dik, tfi, tfj, tfk, param_ijk);
           //lwpf_stop(ATTRACTIVE);
           fend[jj][0] += tfj[0];
           fend[jj][1] += tfj[1];
@@ -727,9 +736,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     }
     pe_put(l_pm.numshort + ist, numshort_local, sizeof(int) * isz);
     pe_syn();
-    pe_put(l_pm.fdone + ist, fdone, sizeof(int) * isz);
-    pe_syn();
-
   }
 
   reg_reduce_inplace_doublev4(eng_virial_v4, 2);
@@ -741,7 +747,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   //lwpf_stop(ALL);
 }
 
-
 void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
   pe_init();
   pair_tersoff_compute_param_t l_pm;
@@ -750,12 +755,12 @@ void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
   double x[ISTEP][3];
   int type[ISTEP];
   atom_in_t atom_in[ISTEP];
-  int zeros[ISTEP];
+  int n1s[ISTEP];
   int ipage_start, i;
   int inum = l_pm.nlocal + l_pm.nghost;
-  intv8 v8_0 = 0;
+  intv8 v8_n1 = -1;
   for (i = 0; i < ISTEP; i += 8)
-    simd_store(v8_0, zeros + i);
+    simd_store(v8_n1, n1s + i);
   for (ipage_start = ISTEP * _MYID; ipage_start < inum; ipage_start += ISTEP * 64){
     int ipage_end = ipage_start + ISTEP;
     if (ipage_end > inum)
@@ -771,7 +776,7 @@ void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
       atom_in[i].type = type[i];
     }
     pe_put(l_pm.atom_in + ipage_start, atom_in, sizeof(atom_in_t) * ipage_size);
-    pe_put(l_pm.fdone + ipage_start, zeros, sizeof(int) * ipage_size);
+    pe_put(l_pm.numshort + ipage_start, n1s, sizeof(int) * ipage_size);
     pe_syn();
   }
 }
