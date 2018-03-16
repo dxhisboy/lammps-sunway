@@ -138,7 +138,6 @@ void PairTersoffSunway::allocate_tmp(int ntotal){
   ftmp_base = (long)ftmp;
   fdone_base = (long)fdone;
   atom_in_base = (long)atom_in;
-  printf("%lx %lx\n", atom_in, ftmp);
 }
 /* ---------------------------------------------------------------------- */
 void PairTersoffSunway::compute(int eflag, int vflag){
@@ -283,23 +282,15 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   pair_tersoff_compute_attractive(&pm);
   GPTLstop("attractive");
   if (eflag_global){
-    //printf("%d %f\n", comm->me, pm.eng_coul);
     eng_vdwl = pm.eng_vdwl;
     eng_coul = pm.eng_coul;
   }
-  //printf("%d %d\n", vflag_either, vflag_global);
+
   if (vflag_global){
     for (i = 0; i < 6; i ++){
       virial[i] = pm.virial[i];
     }
   }
-  
-  //printf("%d %f\n", comm->me, virial[0]);
-
-  //if (vflag_fdotr) virial_fdotr_compute();
-  //memory->destroy(prefactor);
-  // memory->destroy(firstshort);
-  // memory->destroy(shortlist);
   memory->destroy(cparams);
 }
 

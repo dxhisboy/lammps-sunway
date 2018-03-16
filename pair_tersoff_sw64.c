@@ -249,7 +249,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int *firstshort = l_pm.firstshort;
   int maxshort = l_pm.maxshort;
   short_neigh_t *shortlist = l_pm.shortlist;
-
+  int mask_swap_hi_lo = 0x10325476;
   int map[ntypes + 1];
   int elem2param[nelements][nelements][nelements];
   tersoff_param_t params[nparams], params3[nelements][nelements][nelements];
@@ -320,7 +320,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     int iwr = iwe - ist;
     int i;
     pe_get(x + ist, xi, sizeof(double) * 3 * isz);
-    pe_get(f + ist, fi, sizeof(double) * 3 * isz);
     pe_syn();
     pe_get(numshort + ist, nn, sizeof(int) * isz);
     pe_get(type + ist, ti, sizeof(int) * isz);
@@ -408,6 +407,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
             short_neigh[nshort].d[1] = -dij[1];
             short_neigh[nshort].d[2] = -dij[2];
             short_neigh[nshort].r2   = r2ij;
+            inv_sqrt(r2ij, short_neigh[nshort].rinv);
             shortidx_local[nshort] = j;
             nshort ++;
           }
@@ -422,12 +422,16 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       }
       pe_put(l_pm.shortidx + i * maxshort, shortidx_local, sizeof(int) * nshort);
       numshort_local[ioff] = nshort;
+      int nshortpad = nshort + 3 & ~3;
+      for (jj = nshort; jj < nshortpad; jj ++){
+        short_neigh[jj].idx = -1;
+        short_neigh[jj].type = 0;
+      }
       doublev4 v4_0 = 0.0;
       for (jj = 0; jj < nshort; jj ++){
         simd_store(v4_0, fend[jj]);
       }
-      //pe_syn();
-      for (jj = 0; jj < nshort; jj ++){
+      for (jj = 0; jj < nshortpad; jj ++){
         short_neigh_t *jshort = short_neigh + jj;
         int jtype = jshort->type;
         int j = jshort->idx;
@@ -436,8 +440,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         dij[1] = jshort->d[1];
         dij[2] = jshort->d[2];
         double r2ij = jshort->r2;
-        double rijinv, rij;
-        inv_sqrt(r2ij, rijinv);
+        double rijinv = jshort->rinv, rij;
         rij = rijinv * r2ij;
         int iparam_ij = elem2param[itype][jtype][jtype];
         tersoff_param_t *param_ij_base = params3[itype][jtype];
@@ -459,8 +462,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           double r2ik = kshort->r2;
           if (r2ik >= param_ijk->cutsq) continue;
           double rik,costheta,arg;
-          double rikinv;
-          inv_sqrt(r2ik, rikinv);
+          double rikinv = kshort->rinv;
           rik = rikinv * r2ik;
           costheta = (dij[0]*dik[0] + dij[1]*dik[1] +
                       dij[2]*dik[2]) * (rijinv*rikinv);
@@ -484,15 +486,10 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           gijk_d_j[kk] = param_ijk->gamma * numerator * denominator * denominator;
 
           zeta_ij += fc_i[kk] * gijk_j[kk] * ex_delr_j[kk];
-
-          //zeta_ij += zeta_unroll(param_ijk, r2ij, r2ik, dij, dik);
         }
         double evdwl, fpair;
         double prefactor;
-        //force_zeta_unroll(param_ij, r2ij, zeta_ij, &fpair, &prefactor, &evdwl);
         double fa, fa_d, bij, bij_d;
-        /* inv_sqrt(r2ij, rinv); */
-        /* r = r2ij * rinv; */
 
         double ters_R = param_ij->bigr;
         double ters_D = param_ij->bigd;
@@ -531,15 +528,16 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         fend[jj][0] -= dij[0] * fpair;
         fend[jj][1] -= dij[1] * fpair;
         fend[jj][2] -= dij[2] * fpair;
-        if (i < nlocal){
-          fxtmp += dij[0] * fpair;
-          fytmp += dij[1] * fpair;
-          fztmp += dij[2] * fpair;
+        if (j >= 0){
+          if (i < nlocal){
+            fxtmp += dij[0] * fpair;
+            fytmp += dij[1] * fpair;
+            fztmp += dij[2] * fpair;
+          }
+          if (l_pm.evflag)
+            ev_tally_global(i, j, nlocal, evdwl, -fpair,
+                            -dij[0], -dij[1], -dij[2], eng_vdwl, virial);
         }
-        if (l_pm.evflag)
-          ev_tally_global(i, j, nlocal, evdwl, -fpair,
-                          -dij[0], -dij[1], -dij[2], eng_vdwl, virial);
-
 
         for (kk = 0; kk < nshort; kk ++){
           if (jj == kk) continue;
@@ -555,9 +553,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           if (r2ik >= param_ijk->cutsq) continue;
           double tfi[3], tfj[3], tfk[3];
           double rij_hat[3], rik_hat[3];
-          double rikinv, rik;
-
-          inv_sqrt(r2ik, rikinv);
+          double rikinv = kshort->rinv, rik;
           rik = rikinv * r2ik;
 
           rij_hat[0] = rijinv * dij[0];
@@ -603,17 +599,18 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           tfi[1] = -tfj[1] - tfk[1];
           tfi[2] = -tfj[2] - tfk[2];
 
-          //lwpf_stop(ATTRACTIVE);
-          fend[jj][0] += tfj[0];
-          fend[jj][1] += tfj[1];
-          fend[jj][2] += tfj[2];
-          fend[kk][0] += tfk[0];
-          fend[kk][1] += tfk[1];
-          fend[kk][2] += tfk[2];
-          fxtmp += tfi[0];
-          fytmp += tfi[1];
-          fztmp += tfi[2];
-          if (vflag_either) v_tally3rd(i, j, k, nlocal, vflag_global, vflag_atom, tfj, tfk, dij, dik, virial, vatom);
+          if (j >= 0){
+            fend[jj][0] += tfj[0];
+            fend[jj][1] += tfj[1];
+            fend[jj][2] += tfj[2];
+            fend[kk][0] += tfk[0];
+            fend[kk][1] += tfk[1];
+            fend[kk][2] += tfk[2];
+            fxtmp += tfi[0];
+            fytmp += tfi[1];
+            fztmp += tfi[2];
+            if (vflag_either) v_tally3rd(i, j, k, nlocal, vflag_global, vflag_atom, tfj, tfk, dij, dik, virial, vatom);
+          }
         }
 
       }
@@ -636,7 +633,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     pe_put(&(pm->eng_vdwl), eng_virial_v4, sizeof(double) * 8);
     pe_syn();
   }
-  //lwpf_stop(ALL);
 }
 
 void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
