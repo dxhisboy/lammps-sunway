@@ -695,4 +695,5 @@ void pair_tersoff_reduction_force(pair_tersoff_compute_param_t *pm){
     pe_syn();
   }
 }
+
 #endif
