@@ -141,6 +141,15 @@ __thread_local rank;
     r = y;                                      \
   }
 
+void print_4(double *in, char *name, int lineno){
+  call_printf("%d: %s=%e %e %e %e\n", lineno, name, in[0], in[1], in[2], in[3]);
+}
+void print_f(double in, char *name, int lineno){
+  call_printf("%d: %s=%e\n", lineno, name, in);
+}
+#define print_vec(x) print_4(&(x), #x, __LINE__)
+#define print_sca(x) print_f(x, #x, __LINE__)
+
 #define HALF 0.5
 void ev_tally_global(int i, int j, int nlocal, double evdwl, double fpair,
                      double delx, double dely, double delz,
@@ -151,6 +160,11 @@ void ev_tally_global(int i, int j, int nlocal, double evdwl, double fpair,
   if (i < nlocal) factor += HALF;
   if (j < nlocal) factor += HALF;
   *eng_vdwl += evdwl * factor;
+  if (_MYID == 0){
+    print_sca(factor);
+    print_sca(evdwl);
+    print_sca(fpair);
+  }
 
   v[0] = delx*delx*fpair;
   v[1] = dely*dely*fpair;
@@ -225,6 +239,50 @@ void v_tally3rd(int i, int j, int k, int nlocal, int vflag_global, int vflag_ato
 #define MMASK (LINESIZE - 1)
 #define LMASK (LINECNT - 1)
 #include <dma.h>
+typedef struct tersoff_param3_v4_t{
+  doublev4 lam3, bigr, bigd, bigb, bigdinv, c, d, c2divd2;
+  doublev4 h, gamma;
+  doublev4 power3, skip;
+} tersoff_param3_v4_t;
+typedef struct tersoff_param3_4_t{
+  double lam3[4], bigr[4], bigd[4], bigb[4], bigdinv[4], c[4], d[4], c2divd2[4];
+  double h[4], gamma[4], power3[4], skip[4];
+} tersoff_param3_4_t;
+typedef union tersoff_param3_u{
+  tersoff_param3_v4_t vec;
+  tersoff_param3_4_t  sca;
+} tersoff_param3_u;
+typedef struct tersoff_param2_v4_t{
+  doublev4 bigr, bigd, bigb, lam2, c1, c4, beta, powern, half_powern_inv, padding;
+  doublev4 skip_f, skip_ev;
+} tersoff_param2_v4_t;
+typedef struct tersoff_param2_4_t{
+  double bigr[4], bigd[4], bigb[4];
+  double lam2[4], c1[4], c4[4], beta[4], powern[4], half_powern_inv[4], padding[4];
+  double skip_f[4], skip_ev[4];
+} tersoff_param2_4_t;
+typedef union tersoff_param2_u{
+  tersoff_param2_v4_t vec;
+  tersoff_param2_4_t  sca;
+} tersoff_param2_u;
+#define simd_bcastf(x) simd_vshff((doublev4)(x), (doublev4)(x), 0)
+#define align_ptr(x) (void*)(((long)(x)) + 31 & ~31)
+#define transpose4x4(in0, in1, in2, in3, ot0, ot1, ot2, ot3) {  \
+    doublev4 o0 = simd_vshff(in1,in0,0x44);                     \
+    doublev4 o1 = simd_vshff(in1,in0,0xEE);                     \
+    doublev4 o2 = simd_vshff(in3,in2,0x44);                     \
+    doublev4 o3 = simd_vshff(in3,in2,0xEE);                     \
+    ot0 = simd_vshff(o2,o0,0x88);                               \
+    ot1 = simd_vshff(o2,o0,0xDD);                               \
+    ot2 = simd_vshff(o3,o1,0x88);                               \
+    ot3 = simd_vshff(o3,o1,0xDD);                               \
+  }
+#define vshuffd_rc(a, b, c, d) (d | (c << 2) | (b << 4) | (a << 6))
+#define simd_vsumd(x) {                                 \
+    x += simd_vshff(x, x, vshuffd_rc(2, 3, 0, 1));      \
+    x += simd_vshff(x, x, vshuffd_rc(1, 0, 3, 2));      \
+  } 
+
 void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   pe_init();
   //lwpf_start(ALL);
@@ -295,7 +353,10 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   double *eng_vdwl = eng_virial_v4;
   double *eng_coul = eng_vdwl + 1;
   double *virial = eng_vdwl + 2;
-
+  doublev4 eng_vdwl_v4 = simd_bcastf(0.0);
+  doublev4 virial_v4[6];
+  for (ii = 0; ii < 6; ii ++)
+    virial_v4[ii] = simd_bcastf(0.0);
   atom_in_t j_cache[LINECNT][LINESIZE];
   int j_tag[LINECNT];
   dma_desc cache_get_desc = 0;
@@ -336,10 +397,20 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       int *idx_short = l_pm.shortidx + i * maxshort;
       int jj;
       int nshort = 0;
-      double fc_i[maxshort], fc_d_i[maxshort];
+      double fc_i_stor[maxshort + 3], fc_d_i_stor[maxshort + 3];
+      double *fc_i = align_ptr(fc_i_stor);
+      double *fc_d_i = align_ptr(fc_d_i_stor);
       double fxtmp = 0.0;
       double fytmp = 0.0;
       double fztmp = 0.0;
+      doublev4 fxtmp_v4 = 0.0;
+      doublev4 fytmp_v4 = 0.0;
+      doublev4 fztmp_v4 = 0.0;
+      doublev4 factor_base_v4;
+      if (i < nlocal)
+        factor_base_v4 = simd_bcastf(0.5);
+      else
+        factor_base_v4 = simd_bcastf(0.0);
       int jst, jed;
       for (jst = 0; jst < jnum; jst += JSTEP){
         jed = jst + JSTEP;
@@ -431,193 +502,398 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       for (jj = 0; jj < nshort; jj ++){
         simd_store(v4_0, fend[jj]);
       }
-      for (jj = 0; jj < nshortpad; jj ++){
-        short_neigh_t *jshort = short_neigh + jj;
-        int jtype = jshort->type;
-        int j = jshort->idx;
-        double dij[3];
-        dij[0] = jshort->d[0];
-        dij[1] = jshort->d[1];
-        dij[2] = jshort->d[2];
-        double r2ij = jshort->r2;
-        double rijinv = jshort->rinv, rij;
-        rij = rijinv * r2ij;
-        int iparam_ij = elem2param[itype][jtype][jtype];
-        tersoff_param_t *param_ij_base = params3[itype][jtype];
-        tersoff_param_t *param_ij = param_ij_base + jtype;
-        if (r2ij >= param_ij->cutsq) continue;
+      int jjj;
+      for (jjj = 0; jjj < nshortpad; jjj += 4){
+        long jtype_4[4];
+        jtype_4[0] = short_neigh[jjj + 0].type;
+        jtype_4[1] = short_neigh[jjj + 1].type;
+        jtype_4[2] = short_neigh[jjj + 2].type;
+        jtype_4[3] = short_neigh[jjj + 3].type;
+        long j_4[4];
+        j_4[0] = short_neigh[jjj + 0].idx;
+        j_4[1] = short_neigh[jjj + 1].idx;
+        j_4[2] = short_neigh[jjj + 2].idx;
+        j_4[3] = short_neigh[jjj + 3].idx;
+        double dij_4[3][4];
+        dij_4[0][0] = short_neigh[jjj + 0].d[0];
+        dij_4[0][1] = short_neigh[jjj + 1].d[0];
+        dij_4[0][2] = short_neigh[jjj + 2].d[0];
+        dij_4[0][3] = short_neigh[jjj + 3].d[0];
 
-        double zeta_ij = 0.0;
+        dij_4[1][0] = short_neigh[jjj + 0].d[1];
+        dij_4[1][1] = short_neigh[jjj + 1].d[1];
+        dij_4[1][2] = short_neigh[jjj + 2].d[1];
+        dij_4[1][3] = short_neigh[jjj + 3].d[1];
+
+        dij_4[2][0] = short_neigh[jjj + 0].d[2];
+        dij_4[2][1] = short_neigh[jjj + 1].d[2];
+        dij_4[2][2] = short_neigh[jjj + 2].d[2];
+        dij_4[2][3] = short_neigh[jjj + 3].d[2];
+
+        double r2_4[4];
+        r2_4[0] = short_neigh[jjj + 0].r2;
+        r2_4[1] = short_neigh[jjj + 1].r2;
+        r2_4[2] = short_neigh[jjj + 2].r2;
+        r2_4[3] = short_neigh[jjj + 3].r2;
+        
+        double rinv_4[4];
+        rinv_4[0] = short_neigh[jjj + 0].rinv;
+        rinv_4[1] = short_neigh[jjj + 1].rinv;
+        rinv_4[2] = short_neigh[jjj + 2].rinv;
+        rinv_4[3] = short_neigh[jjj + 3].rinv;
+        double rij_4[4];
+        rij_4[0] = r2_4[0] * rinv_4[0];
+        rij_4[1] = r2_4[1] * rinv_4[1];
+        rij_4[2] = r2_4[2] * rinv_4[2];
+        rij_4[3] = r2_4[3] * rinv_4[3];
+        double zeta_ij_4[4];
+        doublev4 zeta_ij_v4;
+        zeta_ij_4[0] = 0.0;
+        zeta_ij_4[1] = 0.0;
+        zeta_ij_4[2] = 0.0;
+        zeta_ij_4[3] = 0.0;
+
+        tersoff_param2_u param2_stor;
+        tersoff_param2_u *param2 = (void*)(((long)(&param2_stor)) + 31 & ~31);
+        for (jj = jjj; jj < jjj + 4; jj ++){
+          int jjoff = jj - jjj;
+          tersoff_param_t *param_ij = params3[itype][jtype_4[jjoff]] + jtype_4[jjoff];
+          param2->sca.lam2           [jjoff] = param_ij->lam2           ;
+          param2->sca.bigr           [jjoff] = param_ij->bigr           ;
+          param2->sca.bigd           [jjoff] = param_ij->bigd           ;
+          param2->sca.bigb           [jjoff] = param_ij->bigb           ;
+          param2->sca.c1             [jjoff] = param_ij->c1             ;
+          param2->sca.c4             [jjoff] = param_ij->c4             ;
+          param2->sca.beta           [jjoff] = param_ij->beta           ;
+          param2->sca.powern         [jjoff] = param_ij->powern         ;
+          param2->sca.half_powern_inv[jjoff] = param_ij->half_powern_inv;
+          param2->sca.skip_f         [jjoff] = j_4[jjoff] == -1         ;
+          param2->sca.skip_ev        [jjoff] = j_4[jjoff] == -1 || j_4[jjoff] >= nlocal;
+        }
         int kk;
-        double ex_delr_j[maxshort], gijk_j[maxshort], gijk_d_j[maxshort];
-        for (kk = 0; kk < nshort; kk ++){
-          if (jj == kk) continue;
-          short_neigh_t *kshort = short_neigh + kk;
-          int ktype = kshort->type;//map[type[k]];
-          tersoff_param_t *param_ijk = param_ij_base + ktype;
-          double dik[3];
-          dik[0] = kshort->d[0];
-          dik[1] = kshort->d[1];
-          dik[2] = kshort->d[2];
-          double r2ik = kshort->r2;
-          if (r2ik >= param_ijk->cutsq) continue;
-          double rik,costheta,arg;
-          double rikinv = kshort->rinv;
-          rik = rikinv * r2ik;
-          costheta = (dij[0]*dik[0] + dij[1]*dik[1] +
-                      dij[2]*dik[2]) * (rijinv*rikinv);
-
-          arg = param_ijk->lam3 * (rij - rik);
-          if (param_ijk->powermint == 3) arg = arg * arg * arg;
-
-          if (arg > 69.0776) ex_delr_j[kk] = 1.e30;
-          else if (arg < -69.0776) ex_delr_j[kk] = 0.0;
-          else ex_delr_j[kk] = p_expd(arg);
-  
-          double ters_R = param_ijk->bigr;
-          double ters_D = param_ijk->bigd;
- 
-          const double ters_c = param_ijk->c * param_ijk->c;
-          const double ters_d = param_ijk->d * param_ijk->d;
-          const double hcth = param_ijk->h - costheta;
-          double numerator = -2.0 * ters_c * hcth;
-          double denominator = 1.0/(ters_d + hcth*hcth);
-          gijk_j[kk] = param_ijk->gamma * (1.0 + param_ijk->c2divd2 - ters_c * denominator);
-          gijk_d_j[kk] = param_ijk->gamma * numerator * denominator * denominator;
-
-          zeta_ij += fc_i[kk] * gijk_j[kk] * ex_delr_j[kk];
-        }
-        double evdwl, fpair;
-        double prefactor;
-        double fa, fa_d, bij, bij_d;
-
-        double ters_R = param_ij->bigr;
-        double ters_D = param_ij->bigd;
-        double ters_B = param_ij->bigb;
-        double ters_lam2 = param_ij->lam2;
-
-        if (rij > ters_R + ters_D) {
-          fa = 0.0; fa_d = 0.0;
-        } else {
-          double er = p_expd(-param_ij->lam2 * rij);
-          fa   = -ters_B * er * fc_i[jj];
-          fa_d = ters_B * er * (param_ij->lam2 * fc_i[jj] - fc_d_i[jj]);
-        }
-  
-        double tmp = param_ij->beta * zeta_ij;
-        double powern = param_ij->powern;
-        double half_powern_inv = param_ij->half_powern_inv;
-    
-        if (tmp > param_ij->c1) {
-          inv_sqrt(tmp, bij);
-          bij_d = param_ij->beta * -0.5 * bij * bij * bij;
-        }
-        else if (tmp < param_ij->c4) {
-          bij = 1.0; bij_d = 0.0;
-        }
-        else {
-          double tmp_n = p_powd(tmp,powern);
-          bij   = p_powd(1.0 + tmp_n, -half_powern_inv);
-          bij_d = -0.5 * bij * tmp_n / (zeta_ij * (1 + tmp_n));
-        }
-  
-        fpair = 0.5*bij*fa_d * rijinv;
-        prefactor = -0.5*fa * bij_d;
-        evdwl = 0.5*bij*fa;
-
-        fend[jj][0] -= dij[0] * fpair;
-        fend[jj][1] -= dij[1] * fpair;
-        fend[jj][2] -= dij[2] * fpair;
-        if (j >= 0){
-          if (i < nlocal){
-            fxtmp += dij[0] * fpair;
-            fytmp += dij[1] * fpair;
-            fztmp += dij[2] * fpair;
-          }
-          if (l_pm.evflag)
-            ev_tally_global(i, j, nlocal, evdwl, -fpair,
-                            -dij[0], -dij[1], -dij[2], eng_vdwl, virial);
-        }
+        double ex_delr_j_stor[nshort + 1][4];
+        double gijk_j_stor[nshort + 1][4];
+        double gijk_d_j_stor[nshort + 1][4];
+        double (*ex_delr_j)[4] = align_ptr(ex_delr_j_stor);
+        double (*gijk_j)[4] = align_ptr(gijk_j_stor);
+        double (*gijk_d_j)[4] = align_ptr(gijk_d_j_stor);
+        tersoff_param3_u param3_stor[nshort + 1];
+        tersoff_param3_u *param3 = (void*)(((long)(param3_stor)) + 31 & ~31);
 
         for (kk = 0; kk < nshort; kk ++){
-          if (jj == kk) continue;
           short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;
-          int k = kshort->idx;
-          tersoff_param_t *param_ijk = param_ij_base + ktype;
           double dik[3];
           dik[0] = kshort->d[0];
           dik[1] = kshort->d[1];
           dik[2] = kshort->d[2];
           double r2ik = kshort->r2;
-          if (r2ik >= param_ijk->cutsq) continue;
-          double tfi[3], tfj[3], tfk[3];
-          double rij_hat[3], rik_hat[3];
-          double rikinv = kshort->rinv, rik;
-          rik = rikinv * r2ik;
-
-          rij_hat[0] = rijinv * dij[0];
-          rij_hat[1] = rijinv * dij[1];
-          rij_hat[2] = rijinv * dij[2];
-
-          rik_hat[0] = rikinv * dik[0];
-          rik_hat[1] = rikinv * dik[1];
-          rik_hat[2] = rikinv * dik[2];
-
-          double cos_theta, ex_delr_d;
-          double dcosdri[3],dcosdrj[3],dcosdrk[3];
-
-          double ters_R = param_ijk->bigr;
-          double ters_D = param_ijk->bigd;
-          double Dinv = param_ijk->bigdinv;
-
-          if (param_ijk->powermint == 3)
-            ex_delr_d = 3.0 *
-              param_ijk->lam3 * param_ijk->lam3 * param_ijk->lam3 *
-              (rij - rik) * (rij - rik) * ex_delr_j[kk];
-          else ex_delr_d = param_ijk->lam3 * ex_delr_j[kk];
-
-          cos_theta = rij_hat[0] * rik_hat[0] + rij_hat[1] * rik_hat[1] + rij_hat[2] * rik_hat[2];
-
-          dcosdrj[0] = (-cos_theta * rij_hat[0] + rik_hat[0]) * rijinv;
-          dcosdrj[1] = (-cos_theta * rij_hat[1] + rik_hat[1]) * rijinv;
-          dcosdrj[2] = (-cos_theta * rij_hat[2] + rik_hat[2]) * rijinv;
-
-          dcosdrk[0] = (-cos_theta * rik_hat[0] + rij_hat[0]) * rikinv;
-          dcosdrk[1] = (-cos_theta * rik_hat[1] + rij_hat[1]) * rikinv;
-          dcosdrk[2] = (-cos_theta * rik_hat[2] + rij_hat[2]) * rikinv;
-
-          tfj[0]=(gijk_d_j[kk]*ex_delr_j[kk]*dcosdrj[0] + gijk_j[kk]*ex_delr_d*rij_hat[0]) * fc_i[kk] * prefactor;
-          tfj[1]=(gijk_d_j[kk]*ex_delr_j[kk]*dcosdrj[1] + gijk_j[kk]*ex_delr_d*rij_hat[1]) * fc_i[kk] * prefactor;
-          tfj[2]=(gijk_d_j[kk]*ex_delr_j[kk]*dcosdrj[2] + gijk_j[kk]*ex_delr_d*rij_hat[2]) * fc_i[kk] * prefactor;
-
-          tfk[0] = (gijk_j[kk]*(ex_delr_j[kk]*fc_d_i[kk] - fc_i[kk]*ex_delr_d)*rik_hat[0] + fc_i[kk]*gijk_d_j[kk]*ex_delr_j[kk]*dcosdrk[0]) * prefactor;
-          tfk[1] = (gijk_j[kk]*(ex_delr_j[kk]*fc_d_i[kk] - fc_i[kk]*ex_delr_d)*rik_hat[1] + fc_i[kk]*gijk_d_j[kk]*ex_delr_j[kk]*dcosdrk[1]) * prefactor;
-          tfk[2] = (gijk_j[kk]*(ex_delr_j[kk]*fc_d_i[kk] - fc_i[kk]*ex_delr_d)*rik_hat[2] + fc_i[kk]*gijk_d_j[kk]*ex_delr_j[kk]*dcosdrk[2]) * prefactor;
-
-          tfi[0] = -tfj[0] - tfk[0];
-          tfi[1] = -tfj[1] - tfk[1];
-          tfi[2] = -tfj[2] - tfk[2];
-
-          if (j >= 0){
-            fend[jj][0] += tfj[0];
-            fend[jj][1] += tfj[1];
-            fend[jj][2] += tfj[2];
-            fend[kk][0] += tfk[0];
-            fend[kk][1] += tfk[1];
-            fend[kk][2] += tfk[2];
-            fxtmp += tfi[0];
-            fytmp += tfi[1];
-            fztmp += tfi[2];
-            if (vflag_either) v_tally3rd(i, j, k, nlocal, vflag_global, vflag_atom, tfj, tfk, dij, dik, virial, vatom);
+          double rikinv = kshort->rinv;
+          double rik = rikinv * r2ik;
+          for (jj = jjj; jj < jjj + 4; jj ++){
+            int jjoff = jj - jjj;
+            tersoff_param_t *param_ijk = params3[itype][jtype_4[jjoff]] + ktype;
+            param3[kk].sca.lam3           [jjoff] = param_ijk->lam3           ;
+            param3[kk].sca.bigr           [jjoff] = param_ijk->bigr           ;
+            param3[kk].sca.bigd           [jjoff] = param_ijk->bigd           ;
+            param3[kk].sca.bigdinv        [jjoff] = param_ijk->bigdinv        ;
+            param3[kk].sca.c              [jjoff] = param_ijk->c*param_ijk->c ;
+            param3[kk].sca.d              [jjoff] = param_ijk->d*param_ijk->d ;
+            param3[kk].sca.c2divd2        [jjoff] = param_ijk->c2divd2        ;
+            param3[kk].sca.h              [jjoff] = param_ijk->h              ;
+            param3[kk].sca.gamma          [jjoff] = param_ijk->gamma          ;
+            param3[kk].sca.power3         [jjoff] = param_ijk->powermint == 3 ;
+            param3[kk].sca.skip           [jjoff] = jj == kk || j_4[jjoff] == -1;
           }
         }
+        doublev4 dij_v4[3];
+        simd_load(dij_v4[0], dij_4[0]);
+        simd_load(dij_v4[1], dij_4[1]);
+        simd_load(dij_v4[2], dij_4[2]);
+        doublev4 r2ij_v4, rij_v4, rijinv_v4;
+        simd_load(r2ij_v4, r2_4);
+        simd_load(rij_v4, rij_4);
+        simd_load(rijinv_v4, rinv_4);
 
+        for (kk = 0; kk < nshort; kk ++){
+          short_neigh_t *kshort = short_neigh + kk;
+          int ktype = kshort->type;
+          double dik[3];
+          dik[0] = kshort->d[0];
+          dik[1] = kshort->d[1];
+          dik[2] = kshort->d[2];
+          double r2ik = kshort->r2;
+          double rikinv = kshort->rinv;
+          double rik = rikinv * r2ik;
+          doublev4 dik_v4[3];
+          dik_v4[0] = simd_bcastf(kshort->d[0]);
+          dik_v4[1] = simd_bcastf(kshort->d[1]);
+          dik_v4[2] = simd_bcastf(kshort->d[2]);
+          doublev4 r2ik_v4 = simd_bcastf(kshort->r2);
+          doublev4 rikinv_v4 = simd_bcastf(kshort->rinv);
+          doublev4 rik_v4 = r2ik_v4 * rikinv_v4;
+          doublev4 costheta_v4 = (dij_v4[0] * dik_v4[0] + dij_v4[1] * dik_v4[1] +
+                                  dij_v4[2] * dik_v4[2]) * (rijinv_v4 * rikinv_v4);
+          doublev4 arg_v4 = param3[kk].vec.lam3 * (rij_v4 - rik_v4);
+          doublev4 argcb_v4 = arg_v4 * arg_v4 * arg_v4;
+          arg_v4 = simd_vseleq(param3[kk].vec.power3, arg_v4, argcb_v4);
+          doublev4 ex_delr_j_v4 = simd_vexpd(arg_v4);
+          doublev4 ters_R_v4  = param3[kk].vec.bigr;
+          doublev4 ters_D_v4  = param3[kk].vec.bigd;
+          doublev4 ters_c_v4  = param3[kk].vec.c;
+          doublev4 ters_d_v4  = param3[kk].vec.d;
+          doublev4 hcth_v4    = param3[kk].vec.h - costheta_v4;
+          doublev4 gamma_v4   = param3[kk].vec.gamma;
+          doublev4 c2divd2_v4 = param3[kk].vec.c2divd2;
+          doublev4 numerator_v4 = simd_bcastf(-2.0) * ters_c_v4 * hcth_v4;
+          doublev4 denominator_v4 = simd_bcastf(1.0) / (ters_d_v4 + hcth_v4 * hcth_v4);
+          doublev4 
+            gijk_j_v4 = gamma_v4*(simd_bcastf(1.0) + c2divd2_v4 - ters_c_v4*denominator_v4);
+          doublev4 gijk_d_j_v4 = gamma_v4*numerator_v4*denominator_v4*denominator_v4;
+          simd_load(zeta_ij_v4, zeta_ij_4);
+          doublev4 fc_v4 = simd_bcastf(fc_i[kk]);
+          fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, simd_bcastf(0.0));
+          zeta_ij_v4 += fc_v4 * gijk_j_v4 * ex_delr_j_v4;
+          simd_store(zeta_ij_v4, zeta_ij_4);
+          simd_store(ex_delr_j_v4, ex_delr_j[kk]);
+          simd_store(gijk_j_v4, gijk_j[kk]);
+          simd_store(gijk_d_j_v4, gijk_d_j[kk]);
+        }
+        double prefactor[4];
+        doublev4 ters_R_v4 = param2->vec.bigr;
+        doublev4 ters_D_v4 = param2->vec.bigd;
+        doublev4 ters_B_v4 = param2->vec.bigb;
+        doublev4 ters_lam2_v4 = param2->vec.lam2;
+        doublev4 er_v4 = simd_vexpd(-ters_lam2_v4 * rij_v4);
+        doublev4 fc_ij_v4;
+        simd_load(fc_ij_v4, fc_i + jjj);
+        doublev4 fc_d_ij_v4;
+        simd_load(fc_d_ij_v4, fc_d_i + jjj);
+        doublev4 fa_v4 = -ters_B_v4 * er_v4 * fc_ij_v4;
+        doublev4 fa_d_v4 = ters_B_v4 * er_v4 * (ters_lam2_v4 * fc_ij_v4 - fc_d_ij_v4);
+        double fa_ij_4[4], fa_d_ij_4[4];
+        simd_store(fa_v4, fa_ij_4);
+        simd_store(fa_d_v4, fa_d_ij_4);
+        doublev4 beta_v4 = param2->vec.beta;
+        doublev4 tmp_v4 = beta_v4 * zeta_ij_v4;
+        doublev4 powern_v4 = param2->vec.powern;
+        doublev4 half_powern_inv_v4 = param2->vec.half_powern_inv;
+        doublev4 c1_v4 = param2->vec.c1;
+        doublev4 c4_v4 = param2->vec.c4;
+        doublev4 tmp_n_v4 = simd_vpowd(tmp_v4, powern_v4);
+        doublev4 tmp_n_p1_v4 = simd_bcastf(1.0) + tmp_n_v4;
+        doublev4 bij_v4 = simd_vpowd(tmp_n_p1_v4, -half_powern_inv_v4);
+        doublev4 bij_d_v4 = simd_bcastf(-0.5) * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
+        double bij_4[4], bij_d_4[4];
+        simd_store(bij_v4, bij_4);
+        simd_store(bij_d_v4, bij_d_4);
+        doublev4 zero_v4 = simd_bcastf(0.0);
+        bij_v4 = simd_vseleq(param2->vec.skip_f, bij_v4, zero_v4);
+        doublev4 fpair_v4 = simd_bcastf(0.5) * bij_v4 * fa_d_v4 * rijinv_v4;
+        doublev4 prefactor_v4 = simd_bcastf(-0.5) * fa_v4 * bij_d_v4;
+        doublev4 evdwl_v4 = 0.5 * bij_v4 * fa_v4;
+        simd_store(prefactor_v4, prefactor);
+        doublev4 fij_v4[3];
+        fij_v4[0] = dij_v4[0] * fpair_v4;
+        fij_v4[1] = dij_v4[1] * fpair_v4;
+        fij_v4[2] = dij_v4[2] * fpair_v4;
+        doublev4 fend_ij_v4[4], pad_v4;
+        transpose4x4(fij_v4[0], fij_v4[1], fij_v4[2], zero_v4,
+                     fend_ij_v4[0], fend_ij_v4[1], fend_ij_v4[2], fend_ij_v4[3]);
+        doublev4 fend_v4[4];
+        simd_load(fend_v4[0], fend[jjj + 0]);
+        simd_load(fend_v4[1], fend[jjj + 1]);
+        simd_load(fend_v4[2], fend[jjj + 2]);
+        simd_load(fend_v4[3], fend[jjj + 3]);
+        fend_v4[0] -= fend_ij_v4[0];
+        fend_v4[1] -= fend_ij_v4[1];
+        fend_v4[2] -= fend_ij_v4[2];
+        fend_v4[3] -= fend_ij_v4[3];
+        simd_store(fend_v4[0], fend[jjj + 0]);
+        simd_store(fend_v4[1], fend[jjj + 1]);
+        simd_store(fend_v4[2], fend[jjj + 2]);
+        simd_store(fend_v4[3], fend[jjj + 3]);
+
+        fxtmp_v4 += fij_v4[0];
+        fytmp_v4 += fij_v4[1];
+        fztmp_v4 += fij_v4[2];
+        if (l_pm.evflag){
+          doublev4 half_v4 = simd_bcastf(0.5);
+          doublev4 factor_v4 = simd_vseleq(param2->vec.skip_ev, half_v4, zero_v4) + factor_base_v4;
+          eng_vdwl_v4 += evdwl_v4 * factor_v4;
+          doublev4 v_v4[6];
+          v_v4[0] = -dij_v4[0] * dij_v4[0] * fpair_v4;
+          v_v4[1] = -dij_v4[1] * dij_v4[1] * fpair_v4;
+          v_v4[2] = -dij_v4[2] * dij_v4[2] * fpair_v4;
+          v_v4[3] = -dij_v4[0] * dij_v4[1] * fpair_v4;
+          v_v4[4] = -dij_v4[0] * dij_v4[2] * fpair_v4;
+          v_v4[5] = -dij_v4[1] * dij_v4[2] * fpair_v4;
+
+          virial_v4[0] += factor_v4 * v_v4[0];
+          virial_v4[1] += factor_v4 * v_v4[1];
+          virial_v4[2] += factor_v4 * v_v4[2];
+          virial_v4[3] += factor_v4 * v_v4[3];
+          virial_v4[4] += factor_v4 * v_v4[4];
+          virial_v4[5] += factor_v4 * v_v4[5];
+        }
+        for (jj = jjj; jj < jjj + 4; jj ++){
+          int jjoff = jj - jjj;
+          int j = j_4[jjoff];
+          int jtype = jtype_4[jjoff];
+
+          double r2ij = r2_4[jjoff];
+          double rij = rij_4[jjoff];
+          double rijinv = rinv_4[jjoff];
+          double dij[3];
+          dij[0] = dij_4[0][jjoff];
+          dij[1] = dij_4[1][jjoff];
+          dij[2] = dij_4[2][jjoff];
+          double evdwl, fpair;
+          double fa, fa_d, bij, bij_d;
+
+          double ters_R = param2->sca.bigr[jjoff];
+          double ters_D = param2->sca.bigd[jjoff];
+          double ters_B = param2->sca.bigb[jjoff];
+          double ters_lam2 = param2->sca.lam2[jjoff];
+
+          /* if (rij > ters_R + ters_D) { */
+          /*   fa = 0.0; fa_d = 0.0; */
+          /* } else { */
+          /*   double er = p_expd(-ters_lam2 * rij); */
+          /*   fa   = -ters_B * er * fc_i[jj]; */
+          /*   fa_d = ters_B * er * (ters_lam2 * fc_i[jj] - fc_d_i[jj]); */
+          /* } */
+          fa = fa_ij_4[jjoff];
+          fa_d = fa_d_ij_4[jjoff];
+          double beta = param2->sca.beta[jjoff];
+          double tmp = beta * zeta_ij_4[jjoff];
+          double powern = param2->sca.powern[jjoff];
+          double half_powern_inv = param2->sca.half_powern_inv[jjoff];
+          double c1 = param2->sca.c1[jjoff];
+          double c4 = param2->sca.c4[jjoff];
+          /* if (tmp > c1) { */
+          /*   inv_sqrt(tmp, bij); */
+          /*   bij_d = beta * -0.5 * bij * bij * bij; */
+          /* } */
+          /* else if (tmp < c4) { */
+          /*   bij = 1.0; bij_d = 0.0; */
+          /* } */
+          /* else { */
+          /*   double tmp_n = p_powd(tmp,powern); */
+          /*   bij   = p_powd(1.0 + tmp_n, -half_powern_inv); */
+          /*   bij_d = -0.5 * bij * tmp_n / (zeta_ij_4[jjoff] * (1 + tmp_n)); */
+          /* } */
+          bij = bij_4[jjoff];
+          bij_d = bij_d_4[jjoff];
+          fpair = 0.5*bij*fa_d * rijinv;
+          //prefactor[jjoff] = -0.5*fa * bij_d;
+          evdwl = 0.5*bij*fa;
+
+          /* fend[jj][0] -= dij[0] * fpair; */
+          /* fend[jj][1] -= dij[1] * fpair; */
+          /* fend[jj][2] -= dij[2] * fpair; */
+          /* if (j >= 0){ */
+          /*   if (i < nlocal){ */
+          /*     fxtmp += dij[0] * fpair; */
+          /*     fytmp += dij[1] * fpair; */
+          /*     fztmp += dij[2] * fpair; */
+          /*   } */
+          /*   /\* if (l_pm.evflag) *\/ */
+          /*   /\*   ev_tally_global(i, j, nlocal, evdwl, -fpair, *\/ */
+          /*   /\*                   -dij[0], -dij[1], -dij[2], eng_vdwl, virial); *\/ */
+          /* } */
+        }
+        for (kk = 0; kk < nshort; kk ++){
+          for (jj = jjj; jj < jjj + 4; jj ++){
+            if (jj == kk) continue;
+            int jjoff = jj - jjj;
+            int j = j_4[jjoff];
+            short_neigh_t *kshort = short_neigh + kk;
+            int ktype = kshort->type;
+            int k = kshort->idx;
+            //tersoff_param_t *param_ijk = params3[itype][jtype_4[jjoff]] + ktype;
+            double dij[3];
+            dij[0] = dij_4[0][jjoff];
+            dij[1] = dij_4[1][jjoff];
+            dij[2] = dij_4[2][jjoff];
+            double dik[3];
+            dik[0] = kshort->d[0];
+            dik[1] = kshort->d[1];
+            dik[2] = kshort->d[2];
+            double r2ij = r2_4[jjoff], rijinv = rinv_4[jjoff];
+            double rij = r2ij * rijinv;
+            double r2ik = kshort->r2;
+
+            double tfi[3], tfj[3], tfk[3];
+            double rij_hat[3], rik_hat[3];
+            double rikinv = kshort->rinv, rik;
+            rik = rikinv * r2ik;
+
+            rij_hat[0] = rijinv * dij[0];
+            rij_hat[1] = rijinv * dij[1];
+            rij_hat[2] = rijinv * dij[2];
+
+            rik_hat[0] = rikinv * dik[0];
+            rik_hat[1] = rikinv * dik[1];
+            rik_hat[2] = rikinv * dik[2];
+
+            double cos_theta, ex_delr_d;
+            double dcosdri[3],dcosdrj[3],dcosdrk[3];
+
+            double ters_R = param3[kk].sca.bigr[jjoff];
+            double ters_D = param3[kk].sca.bigd[jjoff];
+            double Dinv   = param3[kk].sca.bigdinv[jjoff];
+            double ters_lam3 = param3[kk].sca.lam3[jjoff];
+            if (param3[kk].sca.power3[jjoff] != 0)
+              ex_delr_d = 3.0 *
+                ters_lam3 * ters_lam3 * ters_lam3 *
+                (rij - rik) * (rij - rik) * ex_delr_j[kk][jjoff];
+            else
+              ex_delr_d = ters_lam3 * ex_delr_j[kk][jjoff];
+            cos_theta = rij_hat[0] * rik_hat[0] + rij_hat[1] * rik_hat[1] + rij_hat[2] * rik_hat[2];
+
+            dcosdrj[0] = (-cos_theta * rij_hat[0] + rik_hat[0]) * rijinv;
+            dcosdrj[1] = (-cos_theta * rij_hat[1] + rik_hat[1]) * rijinv;
+            dcosdrj[2] = (-cos_theta * rij_hat[2] + rik_hat[2]) * rijinv;
+
+            dcosdrk[0] = (-cos_theta * rik_hat[0] + rij_hat[0]) * rikinv;
+            dcosdrk[1] = (-cos_theta * rik_hat[1] + rij_hat[1]) * rikinv;
+            dcosdrk[2] = (-cos_theta * rik_hat[2] + rij_hat[2]) * rikinv;
+
+            tfj[0]=(gijk_d_j[kk][jjoff]*ex_delr_j[kk][jjoff]*dcosdrj[0] + gijk_j[kk][jjoff]*ex_delr_d*rij_hat[0]) * fc_i[kk] * prefactor[jjoff];
+            tfj[1]=(gijk_d_j[kk][jjoff]*ex_delr_j[kk][jjoff]*dcosdrj[1] + gijk_j[kk][jjoff]*ex_delr_d*rij_hat[1]) * fc_i[kk] * prefactor[jjoff];
+            tfj[2]=(gijk_d_j[kk][jjoff]*ex_delr_j[kk][jjoff]*dcosdrj[2] + gijk_j[kk][jjoff]*ex_delr_d*rij_hat[2]) * fc_i[kk] * prefactor[jjoff];
+
+            tfk[0] = (gijk_j[kk][jjoff]*(ex_delr_j[kk][jjoff]*fc_d_i[kk] - fc_i[kk]*ex_delr_d)*rik_hat[0] + fc_i[kk]*gijk_d_j[kk][jjoff]*ex_delr_j[kk][jjoff]*dcosdrk[0]) * prefactor[jjoff];
+            tfk[1] = (gijk_j[kk][jjoff]*(ex_delr_j[kk][jjoff]*fc_d_i[kk] - fc_i[kk]*ex_delr_d)*rik_hat[1] + fc_i[kk]*gijk_d_j[kk][jjoff]*ex_delr_j[kk][jjoff]*dcosdrk[1]) * prefactor[jjoff];
+            tfk[2] = (gijk_j[kk][jjoff]*(ex_delr_j[kk][jjoff]*fc_d_i[kk] - fc_i[kk]*ex_delr_d)*rik_hat[2] + fc_i[kk]*gijk_d_j[kk][jjoff]*ex_delr_j[kk][jjoff]*dcosdrk[2]) * prefactor[jjoff];
+
+            tfi[0] = -tfj[0] - tfk[0];
+            tfi[1] = -tfj[1] - tfk[1];
+            tfi[2] = -tfj[2] - tfk[2];
+
+            if (j >= 0){
+              fend[jj][0] += tfj[0];
+              fend[jj][1] += tfj[1];
+              fend[jj][2] += tfj[2];
+              fend[kk][0] += tfk[0];
+              fend[kk][1] += tfk[1];
+              fend[kk][2] += tfk[2];
+              fxtmp += tfi[0];
+              fytmp += tfi[1];
+              fztmp += tfi[2];
+              if (vflag_either) v_tally3rd(i, j, k, nlocal, vflag_global, vflag_atom, tfj, tfk, dij, dik, virial, vatom);
+            }
+          }
+        }
       }
       pe_put(l_pm.fend[i * maxshort], fend, sizeof(double) * nshort * 4);
-      fi[ioff][0] = fxtmp;
-      fi[ioff][1] = fytmp;
-      fi[ioff][2] = fztmp;
+      simd_vsumd(fxtmp_v4);
+      simd_vsumd(fytmp_v4);
+      simd_vsumd(fztmp_v4);
+      fi[ioff][0] = fxtmp + fxtmp_v4;
+      fi[ioff][1] = fytmp + fytmp_v4;
+      fi[ioff][2] = fztmp + fztmp_v4;
       pe_syn();
     }
     if (iwr > 0){
@@ -627,6 +903,12 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     pe_syn();
   }
 
+  simd_vsumd(eng_vdwl_v4);
+  *eng_vdwl += eng_vdwl_v4;
+  for (ii = 0; ii < 6; ii ++){
+    simd_vsumd(virial_v4[ii]);
+    virial[ii] += virial_v4[ii];
+  }
   reg_reduce_inplace_doublev4(eng_virial_v4, 2);
 
   if (_MYID == 0){
