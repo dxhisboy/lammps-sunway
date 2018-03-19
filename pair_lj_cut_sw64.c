@@ -47,7 +47,7 @@ void pair_lj_cut_sunway_compute(pair_lj_cut_compute_param_t *pm){
 }
 #endif
 #ifdef CPE
-#define LWPF_KERNELS _K(COMP) K(CACHE) K(IREAD) K(IWRITE) K(ALL) K(GST) K(VECPACK) K(JLOOP) K(VECCOMP)
+//#define LWPF_KERNELS _K(COMP) K(CACHE) K(IREAD) K(IWRITE) K(ALL) K(GST) K(VECPACK) K(JLOOP) K(VECCOMP)
 #define LWPF_UNIT U(LJCUT)
 #include "lwpf.h"
 #include <dma.h>

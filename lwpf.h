@@ -289,15 +289,15 @@ inline void calc_unit(long max, char *unit, long *div){
   }
   if (max > 1000000000) {
     *unit = 'M';
-    *div = 10000000;
+    *div = 1000000;
   }
   if (max > 1000000000000) {
     *unit = 'G';
-    *div = 10000000000;
+    *div = 1000000000;
   }
   if (max > 1000000000000000) {
     *unit = 'T';
-    *div = 10000000000000;
+    *div = 1000000000000;
   }
 }
 inline void lwpf_print(FILE *f, long *ctrs, int kcnt, const char *unit, char *kname[]){

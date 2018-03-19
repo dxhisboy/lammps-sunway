@@ -22,7 +22,8 @@ extern "C"{
   typedef struct short_neigh_t{
     //double prefactor_fwd, prefactor_rev;
     double d[3], r2, rinv;
-    long type, idx, padding;
+    long type, idx;
+    double padding;
   } short_neigh_t;
 
   typedef struct pair_tersoff_compute_param_t{
