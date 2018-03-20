@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "gptl.h"
 #define ISTEP 128
+#define ISHIFT 7
 #define JSTEP 32
 
 #ifdef MPE
@@ -18,7 +19,7 @@ int r = 0;
 void waitint(int *ptr){
   while (1){
     int tmp;
-    asm ("ldw_nc %0, 0(%1)\n\t": "=&r"(tmp): "r"(ptr));
+    asm ("ldw %0, 0(%1)\n\t": "=&r"(tmp): "r"(ptr));
     if (tmp != -1)
       break;
   }
@@ -74,51 +75,60 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   GPTLstop("tersoff a2s");
   GPTLstart("attractive athread");
   athread_spawn(pair_tersoff_compute_attractive_para, pm);
-  GPTLstart("attractive reduction bond");
+  //GPTLstart("attractive reduction bond");
   int cpe_id = 0;
+  //GPTLstop("attractive reduction bond");
+  GPTLstart("attractive reduction bond");
   for (ist = 0; ist < ntotal; ist += ISTEP){
-    ied = ist + ISTEP;
-    if (ied > ntotal)
-      ied = ntotal;
-
-    waitcpe(IO_addr(progress, cpe_id, cgid), ist);
-    //waitint(numshort + ist);
+    waitint(numshort + (ist >> ISHIFT));
     cpe_id += 1;
     cpe_id &= 63;
-    for (ii = ist; ii < ied; ii ++){
-      int jj, jend;
-      jend = numshort[ii] + ii * maxshort;
-      for (jj = ii * maxshort; jj < jend; jj += 4){
-        int j0 = shortidx[jj + 0];
-        int j1 = shortidx[jj + 1];
-        int j2 = shortidx[jj + 2];
-        int j3 = shortidx[jj + 3];
-        /* ftmp_v4[j0] += fend_v4[jj + 0]; */
-        /* ftmp_v4[j1] += fend_v4[jj + 1]; */
-        /* ftmp_v4[j2] += fend_v4[jj + 2]; */
-        /* ftmp_v4[j3] += fend_v4[jj + 3]; */
-        doublev4 fend0, fend1, fend2, fend3;
-        simd_load(fend0, fend[jj + 0]);
-        simd_load(fend1, fend[jj + 1]);
-        simd_load(fend2, fend[jj + 2]);
-        simd_load(fend3, fend[jj + 3]);
-        doublev4 ftmp_j0, ftmp_j1, ftmp_j2, ftmp_j3;
-        simd_load(ftmp_j0, ftmp[j0]);
-        simd_load(ftmp_j1, ftmp[j1]);
-        simd_load(ftmp_j2, ftmp[j2]);
-        simd_load(ftmp_j3, ftmp[j3]);
-        simd_store(fend0 + ftmp_j0, ftmp[j0]);
-        simd_store(fend1 + ftmp_j1, ftmp[j1]);
-        simd_store(fend2 + ftmp_j2, ftmp[j2]);
-        simd_store(fend3 + ftmp_j3, ftmp[j3]);
-      }
+    int jj, jend;
+    jend = numshort[ist >> ISHIFT] + ist * maxshort;
+    for (jj = ist * maxshort; jj < jend; jj += 8){
+      int j0 = shortidx[jj + 0];
+      int j1 = shortidx[jj + 1];
+      int j2 = shortidx[jj + 2];
+      int j3 = shortidx[jj + 3];
+      int j4 = shortidx[jj + 4];
+      int j5 = shortidx[jj + 5];
+      int j6 = shortidx[jj + 6];
+      int j7 = shortidx[jj + 7];
+
+      doublev4 fend0, fend1, fend2, fend3, fend4, fend5, fend6, fend7;
+      simd_load(fend0, fend[jj + 0]);
+      simd_load(fend1, fend[jj + 1]);
+      simd_load(fend2, fend[jj + 2]);
+      simd_load(fend3, fend[jj + 3]);
+      simd_load(fend4, fend[jj + 4]);
+      simd_load(fend5, fend[jj + 5]);
+      simd_load(fend6, fend[jj + 6]);
+      simd_load(fend7, fend[jj + 7]);
+
+      doublev4 ftmp_j0, ftmp_j1, ftmp_j2, ftmp_j3, ftmp_j4, ftmp_j5, ftmp_j6, ftmp_j7;
+      simd_load(ftmp_j0, ftmp[j0]);
+      simd_load(ftmp_j1, ftmp[j1]);
+      simd_load(ftmp_j2, ftmp[j2]);
+      simd_load(ftmp_j3, ftmp[j3]);
+      simd_load(ftmp_j4, ftmp[j4]);
+      simd_load(ftmp_j5, ftmp[j5]);
+      simd_load(ftmp_j6, ftmp[j6]);
+      simd_load(ftmp_j7, ftmp[j7]);
+
+      simd_store(fend0 + ftmp_j0, ftmp[j0]);
+      simd_store(fend1 + ftmp_j1, ftmp[j1]);
+      simd_store(fend2 + ftmp_j2, ftmp[j2]);
+      simd_store(fend3 + ftmp_j3, ftmp[j3]);
+      simd_store(fend4 + ftmp_j4, ftmp[j4]);
+      simd_store(fend5 + ftmp_j5, ftmp[j5]);
+      simd_store(fend6 + ftmp_j6, ftmp[j6]);
+      simd_store(fend7 + ftmp_j7, ftmp[j7]);
     }
   }
   GPTLstop("attractive reduction bond");
 
   athread_join();
   GPTLstop("attractive athread");
-
 
   GPTLstart("attractive reduction force");
   athread_spawn(pair_tersoff_reduction_force, pm);
@@ -387,7 +397,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int numneigh_local[ISTEP];
   int jlist_local[ISTEP];
   int shortidx_local[ISTEP];
-  int numshort_local[ISTEP];
   double fi[ISTEP][3], xi[ISTEP][3];
   int ti[ISTEP];
   int *numshort = l_pm.numshort;
@@ -413,10 +422,22 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   dma_set_reply(&cache_get_desc, &cache_reply);
   doublev4 tf_mask_v4 = simd_set_doublev4(0, 1, 0, 0);
   doublev4 one_v4 = simd_bcastf(1.0);
+  doublev4 two_v4 = simd_bcastf(2.0);
   doublev4 half_v4 = simd_bcastf(0.5);
   doublev4 zero_v4 = simd_bcastf(0.0);
   doublev4 pi2_v4 = simd_bcastf(MY_PI2);
   doublev4 pi4_v4 = simd_bcastf(MY_PI4);
+  doublev4 third_v4 = one_v4 / simd_bcastf(3.0);
+  doublev4 three_v4 = simd_bcastf(3.0);
+  /* if (!_MYID){ */
+  /*   print_vec(one_v4); */
+  /*   print_vec(two_v4); */
+  /*   print_vec(half_v4); */
+  /*   print_vec(zero_v4); */
+  /*   print_vec(pi2_v4); */
+  /*   print_vec(pi4_v4); */
+  /*   print_vec(third_v4); */
+  /* } */
   for (ii = 0; ii < LINECNT; ii ++)
     j_tag[ii] = -1;
   for (ist = _MYID * ISTEP; ist < ntotal; ist += ISTEP * 64){
@@ -437,8 +458,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     pe_syn();
     pe_get(l_pm.numneigh + ist, numneigh_local, sizeof(int) * isz);
     pe_syn();
-    int shortneigh_offset = ist * maxshort;
-    int nshortsum = 0;
+    int short_offset = ist * maxshort;
     for (i = ist; i < ied; i ++){
       int ioff = i - ist;
       int itype = map[ti[ioff]];
@@ -449,22 +469,18 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       double fc_i_stor[maxshort + 3], fc_d_i_stor[maxshort + 3];
       double *fc_i = align_ptr(fc_i_stor);
       double *fc_d_i = align_ptr(fc_d_i_stor);
-      double fxtmp = 0.0;
-      double fytmp = 0.0;
-      double fztmp = 0.0;
       doublev4 fxtmp_v4 = 0.0;
       doublev4 fytmp_v4 = 0.0;
       doublev4 fztmp_v4 = 0.0;
-      doublev4 factor2_base_v4, factor3_base_v4;
-      if (i < nlocal)
-        factor2_base_v4 = simd_bcastf(0.5);
-      else
-        factor2_base_v4 = simd_bcastf(0.0);
-      if (i < nlocal)
-        factor3_base_v4 = simd_bcastf(THIRD);
-      else
-        factor3_base_v4 = simd_bcastf(0.0);
-
+      doublev4 fac2_base_v4 = 0.0, fac3_base_v4 = 0.0;
+      if (i < nlocal){
+        fac2_base_v4 += half_v4;//simd_bcastf(HALF);
+        fac3_base_v4 += third_v4;//simd_bcastf(THIRD);
+      }
+      /* if (!_MYID){ */
+      /*   print_vec(fac2_base_v4); */
+      /*   print_vec(fac3_base_v4); */
+      /* } */
       int jj, jjj;
       int jst, jed;
       //lwpf_start(repulsive);
@@ -549,8 +565,8 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 rinv_v4 = one_v4 / r_v4;
 
           doublev4 angle_v4 = pi2_v4 * (r_v4 - bigr_v4) * bigdinv_v4;
-          doublev4 fc_v4 = zero_v4; //half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4));
-          doublev4 fc_d_v4 = zero_v4; //-(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4);
+          doublev4 fc_v4 = half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4));
+          doublev4 fc_d_v4 = -(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4);
           doublev4 rhi_v4 = r_v4 - (bigr_v4 + bigd_v4);
           doublev4 rlo_v4 = r_v4 - (bigr_v4 - bigd_v4);
           fc_v4 = simd_vsellt(rlo_v4, one_v4, fc_v4);
@@ -619,14 +635,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       }
       //lwpf_stop(repulsive);
       int nshortpad = nshort + 3 & ~3;
-      numshort_local[ioff] = nshortpad;
-
-      for (jj = nshort; jj < nshortpad; jj ++){
-        shortidx_local[jj] = nlocal;
-      }
-
-      pe_put(l_pm.shortidx + i * maxshort, shortidx_local, sizeof(int) * nshortpad);
-      pe_syn();
       for (jj = nshort; jj < nshortpad; jj ++){
         short_neigh[jj].idx = nlocal;
         short_neigh[jj].type = 0;
@@ -779,19 +787,22 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 hcth_v4    = param3[kk].vec.h - costheta_v4;
           doublev4 gamma_v4   = param3[kk].vec.gamma;
           doublev4 c2divd2_v4 = param3[kk].vec.c2divd2;
-          doublev4 numerator_v4 = simd_bcastf(-2.0) * ters_c_v4 * hcth_v4;
-          doublev4 denominator_v4 = simd_bcastf(1.0) / (ters_d_v4 + hcth_v4 * hcth_v4);
+          doublev4 numerator_v4 = -two_v4 * ters_c_v4 * hcth_v4;
+          //simd_bcastf(-2.0) * ters_c_v4 * hcth_v4;
+          doublev4 denominator_v4 = one_v4 / (ters_d_v4 + hcth_v4 * hcth_v4);
+          //simd_bcastf(1.0) / (ters_d_v4 + hcth_v4 * hcth_v4);
           gijk_j_v4[kk] = 
-            gamma_v4*(simd_bcastf(1.0) + c2divd2_v4 - ters_c_v4*denominator_v4);
+            gamma_v4*(one_v4 + c2divd2_v4 - ters_c_v4*denominator_v4);
+            //gamma_v4*(simd_bcastf(1.0) + c2divd2_v4 - ters_c_v4*denominator_v4);
           gijk_d_j_v4[kk] = gamma_v4*numerator_v4*denominator_v4*denominator_v4;
           //simd_load(zeta_ij_v4, zeta_ij_4);
           doublev4 fc_v4 = simd_bcastf(fc_i[kk]);
-          fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, simd_bcastf(0.0));
+          //fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, simd_bcastf(0.0));
+          fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, zero_v4);
           zeta_ij_v4 = zeta_ij_v4 + fc_v4 * gijk_j_v4[kk] * ex_delr_j_v4[kk];
         }
         //lwpf_stop(zeta);
         //lwpf_start(force_zeta);
-        double prefactor[4];
         doublev4 ters_R_v4 = param2->vec.bigr;
         doublev4 ters_D_v4 = param2->vec.bigd;
         doublev4 ters_B_v4 = param2->vec.bigb;
@@ -810,14 +821,18 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         doublev4 c1_v4 = param2->vec.c1;
         doublev4 c4_v4 = param2->vec.c4;
         doublev4 tmp_n_v4 = simd_vpowd(tmp_v4, powern_v4);
-        doublev4 tmp_n_p1_v4 = simd_bcastf(1.0) + tmp_n_v4;
+        doublev4 tmp_n_p1_v4 = one_v4 + tmp_n_v4;
+        //doublev4 tmp_n_p1_v4 = simd_bcastf(1.0) + tmp_n_v4;
         doublev4 bij_v4 = simd_vpowd(tmp_n_p1_v4, -half_powern_inv_v4);
-        doublev4 bij_d_v4 = simd_bcastf(-0.5) * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
-        doublev4 zero_v4 = simd_bcastf(0.0);
+        //doublev4 bij_d_v4 = simd_bcastf(-0.5) * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
+        doublev4 bij_d_v4 = -half_v4 * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
+        //doublev4 zero_v4 = simd_bcastf(0.0);
         bij_v4 = simd_vseleq(param2->vec.skip_f, bij_v4, zero_v4);
-        doublev4 fpair_v4 = simd_bcastf(0.5) * bij_v4 * fa_d_v4 * rijinv_v4;
-        doublev4 prefactor_v4 = simd_bcastf(-0.5) * fa_v4 * bij_d_v4;
-        doublev4 evdwl_v4 = 0.5 * bij_v4 * fa_v4;
+        //doublev4 fpair_v4 = simd_bcastf(0.5) * bij_v4 * fa_d_v4 * rijinv_v4;
+        doublev4 fpair_v4 = half_v4 * bij_v4 * fa_d_v4 * rijinv_v4;
+        //doublev4 prefactor_v4 = simd_bcastf(-0.5) * fa_v4 * bij_d_v4;
+        doublev4 prefactor_v4 = -half_v4 * fa_v4 * bij_d_v4;
+        doublev4 evdwl_v4 = half_v4 * bij_v4 * fa_v4;
 
         doublev4 fij_v4[3];
         fij_v4[0] = dij_v4[0] * fpair_v4;
@@ -835,9 +850,9 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         fytmp_v4 += fij_v4[1];
         fztmp_v4 += fij_v4[2];
         if (l_pm.evflag){
-          doublev4 half_v4 = simd_bcastf(0.5);
-          doublev4 factor_v4 = simd_vseleq(param2->vec.skip_ev, half_v4, zero_v4) + factor2_base_v4;
-          eng_vdwl_v4 += evdwl_v4 * factor_v4;
+          //doublev4 half_v4 = simd_bcastf(0.5);
+          doublev4 fac_v4 = simd_vseleq(param2->vec.skip_ev, half_v4, zero_v4) + fac2_base_v4;
+          eng_vdwl_v4 += evdwl_v4 * fac_v4;
           doublev4 v_v4[6];
           v_v4[0] = -dij_v4[0] * dij_v4[0] * fpair_v4;
           v_v4[1] = -dij_v4[1] * dij_v4[1] * fpair_v4;
@@ -846,12 +861,12 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           v_v4[4] = -dij_v4[0] * dij_v4[2] * fpair_v4;
           v_v4[5] = -dij_v4[1] * dij_v4[2] * fpair_v4;
 
-          virial_v4[0] += factor_v4 * v_v4[0];
-          virial_v4[1] += factor_v4 * v_v4[1];
-          virial_v4[2] += factor_v4 * v_v4[2];
-          virial_v4[3] += factor_v4 * v_v4[3];
-          virial_v4[4] += factor_v4 * v_v4[4];
-          virial_v4[5] += factor_v4 * v_v4[5];
+          virial_v4[0] += fac_v4 * v_v4[0];
+          virial_v4[1] += fac_v4 * v_v4[1];
+          virial_v4[2] += fac_v4 * v_v4[2];
+          virial_v4[3] += fac_v4 * v_v4[3];
+          virial_v4[4] += fac_v4 * v_v4[4];
+          virial_v4[5] += fac_v4 * v_v4[5];
         }
         //lwpf_stop(force_zeta);
         //lwpf_start(attractive);
@@ -876,7 +891,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 ex_delr_v4 = ex_delr_j_v4[kk];
           //simd_load(ex_delr_v4, ex_delr_j[kk]);
           doublev4 ex_delr_d_v4 = ters_lam3_v4 * ex_delr_v4;
-          doublev4 ex_delr_d_cu_v4 = simd_bcastf(3.0) * 
+          doublev4 ex_delr_d_cu_v4 = three_v4 * //simd_bcastf(3.0) * 
             ters_lam3_v4 * ters_lam3_v4 * ters_lam3_v4 *
             (rij_v4 - rik_v4) * (rij_v4 - rik_v4) * ex_delr_v4;
           ex_delr_d_v4 = simd_vseleq(param3[kk].vec.power3, ex_delr_d_v4, ex_delr_d_cu_v4);
@@ -948,14 +963,15 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           fytmp_v4 += tfi_v4[1];
           fztmp_v4 += tfi_v4[2];
           
-          doublev4 factor3_v4;
-          doublev4 zero_v4 = simd_bcastf(0.0);
-          doublev4 third_v4 = simd_bcastf(THIRD);
-          if (k < nlocal)
-            factor3_v4 = factor3_base_v4 + simd_bcastf(THIRD);
-          else
-            factor3_v4 = factor3_base_v4;
-          factor3_v4 += simd_vseleq(param2->vec.skip_ev, third_v4, zero_v4);
+          doublev4 fac3_v4 = fac3_base_v4;
+          //doublev4 zero_v4 = simd_bcastf(0.0);
+          //doublev4 third_v4 = simd_bcastf(THIRD);
+          
+          if (k < nlocal) {
+            //fac3_v4 = fac3_v4 + third_v4;//simd_bcastf(THIRD);
+            asm("vaddd %2, %1, %0\n\t": "=r"(fac3_v4) : "r"(fac3_base_v4), "r"(third_v4));
+          }
+          fac3_v4 += simd_vseleq(param2->vec.skip_ev, third_v4, zero_v4);
           if (l_pm.evflag){
             doublev4 v_v4[6];
             v_v4[0] = dij_v4[0] * tfj_v4[0] + dik_v4[0] * tfk_v4[0];
@@ -965,31 +981,50 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
             v_v4[4] = dij_v4[0] * tfj_v4[2] + dik_v4[0] * tfk_v4[2];
             v_v4[5] = dij_v4[1] * tfj_v4[2] + dik_v4[1] * tfk_v4[2];
 
-            virial_v4[0] += factor3_v4 * v_v4[0];
-            virial_v4[1] += factor3_v4 * v_v4[1];
-            virial_v4[2] += factor3_v4 * v_v4[2];
-            virial_v4[3] += factor3_v4 * v_v4[3];
-            virial_v4[4] += factor3_v4 * v_v4[4];
-            virial_v4[5] += factor3_v4 * v_v4[5];
+            virial_v4[0] += fac3_v4 * v_v4[0];
+            virial_v4[1] += fac3_v4 * v_v4[1];
+            virial_v4[2] += fac3_v4 * v_v4[2];
+            virial_v4[3] += fac3_v4 * v_v4[3];
+            virial_v4[4] += fac3_v4 * v_v4[4];
+            virial_v4[5] += fac3_v4 * v_v4[5];
           }
         }
         //lwpf_stop(attractive);
       }
-      pe_put(l_pm.fend[i * maxshort], fend_v4, sizeof(doublev4) * nshortpad);
+
+      pe_put(l_pm.shortidx + short_offset, shortidx_local, sizeof(int) * nshort);
+      pe_syn();
+      pe_put(l_pm.fend[short_offset], fend_v4, sizeof(doublev4) * nshort);
+      short_offset += nshort;
       simd_vsumd(fxtmp_v4);
       simd_vsumd(fytmp_v4);
       simd_vsumd(fztmp_v4);
-      fi[ioff][0] = fxtmp + fxtmp_v4;
-      fi[ioff][1] = fytmp + fytmp_v4;
-      fi[ioff][2] = fztmp + fztmp_v4;
+      fi[ioff][0] = fxtmp_v4;
+      fi[ioff][1] = fytmp_v4;
+      fi[ioff][2] = fztmp_v4;
       pe_syn();
     }
     if (iwr > 0){
       pe_put(f + ist, fi, sizeof(double) * iwr * 3);
       pe_syn();
     }
-    pe_put(l_pm.numshort + ist, numshort_local, sizeof(int) * isz);
-    pe_syn();
+    int nshortsum = short_offset - ist * maxshort;
+    int nshortsumpad = nshortsum + 7 & ~7;
+    int npad = nshortsumpad - nshortsum;
+    if (npad > 0){
+      doublev4 fend_stor[npad + 1];
+      doublev4 *fend_v4 = align_ptr(fend_stor);
+      for (ii = 0; ii < npad; ii ++){
+        shortidx_local[ii] = nlocal;
+        fend_v4[ii] = 0;
+      }
+      pe_put(l_pm.shortidx + short_offset, shortidx_local, sizeof(int) * npad);
+      pe_put(l_pm.fend[short_offset], fend_v4, sizeof(doublev4) * npad);
+      pe_syn();
+    }
+    l_pm.numshort[ist >> ISHIFT] = nshortsumpad;
+    /* pe_put(l_pm.numshort + (ist >> ISHIFT), numshort_local, sizeof(int)); */
+    /* pe_syn(); */
     progress = ist;
   }
 
