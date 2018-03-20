@@ -29,17 +29,18 @@ using namespace LAMMPS_NS;
    main program to drive LAMMPS
 ------------------------------------------------------------------------- */
 extern "C"{
-  extern void spc_on_sig(int sig);
+  extern void pc_on_sig(int sig);
+  extern void cinfo_init();
 }
 int __rank;
 int main(int argc, char **argv)
 {
   MPI_Init(&argc,&argv);
   GPTLinitialize();
-
+  cinfo_init();
   MPI_Comm_rank(MPI_COMM_WORLD, &__rank);
   if (__rank == 0){
-    signal(SIGUSR1, spc_on_sig);
+    signal(SIGUSR1, pc_on_sig);
     printf("%d\n", getpid());
   } else {
     signal(SIGUSR1, SIG_IGN);

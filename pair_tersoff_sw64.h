@@ -9,15 +9,15 @@ extern "C"{
     double gamma,powerm;
     double powern,beta,half_powern_inv;
     double biga,bigb,bigd,bigr,bigdinv,c2divd2;
-    double cut,cutsq;
-    double c1,c2,c3,c4;
-    int ielement,jelement,kelement;
+    double /* cut, */cutsq;
+    double c1/* ,c2,c3 */,c4;
+    /* int ielement,jelement,kelement; */
     int powermint;
-    double Z_i,Z_j;              // added for TersoffZBL
-    double ZBLcut,ZBLexpscale;
-    double c5,ca1,ca4;           // added for TersoffMOD
-    double powern_del;
-    double c0;                   // added for TersoffMODC
+    /* double Z_i,Z_j;              // added for TersoffZBL */
+    /* double ZBLcut,ZBLexpscale; */
+    /* double c5,ca1,ca4;           // added for TersoffMOD */
+    /* double powern_del; */
+    /* double c0;                   // added for TersoffMODC */
   } tersoff_param_t;
   typedef struct short_neigh_t{
     //double prefactor_fwd, prefactor_rev;

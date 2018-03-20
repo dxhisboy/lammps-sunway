@@ -3,12 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "gptl.h"
-#define ISTEP 64
+#define ISTEP 128
 #define JSTEP 32
 
 #ifdef MPE
-#define LWPF_UNITS U(TERSOFF)
-#include "lwpf.h"
+//#define LWPF_UNITS U(TERSOFF)
+//#include "lwpf.h"
 #include <simd.h>
 extern SLAVE_FUN(pair_tersoff_compute_attractive_para)(void*);
 extern SLAVE_FUN(pair_tersoff_a2s)(void*);
@@ -18,14 +18,21 @@ int r = 0;
 void waitint(int *ptr){
   while (1){
     int tmp;
-    asm ("ldw_nc %0, 0(%1)": "=&r"(tmp): "r"(ptr));
-    //volatile int i;
+    asm ("ldw_nc %0, 0(%1)\n\t": "=&r"(tmp): "r"(ptr));
     if (tmp != -1)
       break;
   }
 }
-
-
+extern __thread long progress;
+extern long cgid;
+void waitcpe(volatile long *ptr, int target){
+  while (1){
+    long tmp;
+    asm ("ldl %0, 0(%1)\n\t": "=r"(tmp) : "r"(ptr));
+    if (tmp >= target)
+      return;
+  }
+}
 void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   if (athread_idle() == 0)
     athread_init();
@@ -43,6 +50,9 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   GPTLstart("tersoff fill");
   double (*ftmp)[4] = pm->ftmp;
   double (*fend)[4] = pm->fend;
+  doublev4 *ftmp_v4 = pm->ftmp;
+  doublev4 *fend_v4 = pm->fend;
+
   int *fdone = pm->fdone;
   
   int ist, ied, ii;
@@ -56,35 +66,25 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   int *numshort = pm->numshort;
   intv8 v8_0 = 0;
   doublev4 v4_0 = 0.0;
-  for (ii = 0; ii < nlocal; ii += 4){
-    simd_store(v4_0, ftmp[ii]);
-    simd_store(v4_0, ftmp[ii + 1]);
-    simd_store(v4_0, ftmp[ii + 2]);
-    simd_store(v4_0, ftmp[ii + 3]);
+  for (ii = 0; ii < 64; ii ++){
+    h2ldm(progress, ii, cgid) = -1;
   }
-
   GPTLstop("tersoff fill");
   athread_join();
   GPTLstop("tersoff a2s");
-  /* if (r == 0){ */
-  /*   perf_config_t conf; */
-  /*   conf.pcr0 = PC0_CNT_ADD_SUB_MUL; */
-  /*   conf.pcr1 = PC1_CNT_DIV_SQRT; */
-  /*   conf.pcr2 = PC2_CNT_DMA_REQ; */
-  /*   conf.pcrc = PCRC_ALL; */
-  /*   lwpf_init(&conf); */
-  /* } */
-  /* r++; */
   GPTLstart("attractive athread");
   athread_spawn(pair_tersoff_compute_attractive_para, pm);
-  athread_join();
-  GPTLstop("attractive athread");
   GPTLstart("attractive reduction bond");
-  for (ist = 0; ist < ntotal; ist += ISTEP * 64){
-    ied = ist + ISTEP * 64;
+  int cpe_id = 0;
+  for (ist = 0; ist < ntotal; ist += ISTEP){
+    ied = ist + ISTEP;
     if (ied > ntotal)
       ied = ntotal;
-    waitint(numshort + ist);
+
+    waitcpe(IO_addr(progress, cpe_id, cgid), ist);
+    //waitint(numshort + ist);
+    cpe_id += 1;
+    cpe_id &= 63;
     for (ii = ist; ii < ied; ii ++){
       int jj, jend;
       jend = numshort[ii] + ii * maxshort;
@@ -93,40 +93,31 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
         int j1 = shortidx[jj + 1];
         int j2 = shortidx[jj + 2];
         int j3 = shortidx[jj + 3];
+        /* ftmp_v4[j0] += fend_v4[jj + 0]; */
+        /* ftmp_v4[j1] += fend_v4[jj + 1]; */
+        /* ftmp_v4[j2] += fend_v4[jj + 2]; */
+        /* ftmp_v4[j3] += fend_v4[jj + 3]; */
         doublev4 fend0, fend1, fend2, fend3;
         simd_load(fend0, fend[jj + 0]);
         simd_load(fend1, fend[jj + 1]);
         simd_load(fend2, fend[jj + 2]);
         simd_load(fend3, fend[jj + 3]);
-        if (j0 < nlocal){
-          doublev4 ftmp_j;
-          simd_load(ftmp_j, ftmp[j0]);
-          simd_store(fend0 + ftmp_j, ftmp[j0]);
-        }
-
-        if (j1 < nlocal && jj + 1 < jend){
-          doublev4 ftmp_j;
-          simd_load(ftmp_j, ftmp[j1]);
-          simd_store(fend1 + ftmp_j, ftmp[j1]);
-        }
-        if (j2 < nlocal && jj + 2 < jend){
-          doublev4 ftmp_j;
-          simd_load(ftmp_j, ftmp[j2]);
-          simd_store(fend2 + ftmp_j, ftmp[j2]);
-        }
-        if (j3 < nlocal && jj + 3 < jend){
-          doublev4 ftmp_j;
-          simd_load(ftmp_j, ftmp[j3]);
-          simd_store(fend3 + ftmp_j, ftmp[j3]);
-        }
+        doublev4 ftmp_j0, ftmp_j1, ftmp_j2, ftmp_j3;
+        simd_load(ftmp_j0, ftmp[j0]);
+        simd_load(ftmp_j1, ftmp[j1]);
+        simd_load(ftmp_j2, ftmp[j2]);
+        simd_load(ftmp_j3, ftmp[j3]);
+        simd_store(fend0 + ftmp_j0, ftmp[j0]);
+        simd_store(fend1 + ftmp_j1, ftmp[j1]);
+        simd_store(fend2 + ftmp_j2, ftmp[j2]);
+        simd_store(fend3 + ftmp_j3, ftmp[j3]);
       }
     }
   }
   GPTLstop("attractive reduction bond");
 
-  /* if (r == 10 && pm->rank == 0){ */
-  /*   lwpf_finish(stdout); */
-  /* } */
+  athread_join();
+  GPTLstop("attractive athread");
 
 
   GPTLstart("attractive reduction force");
@@ -318,7 +309,7 @@ typedef union tersoff_param2_u{
 //#define LWPF_UNIT U(TERSOFF)
 //#include "lwpf.h"
 #define SQR(x) ((x) * (x))
-
+__thread_local long progress;
 void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   pe_init();
   //lwpf_start(all);
@@ -344,8 +335,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int maxshort = l_pm.maxshort;
   short_neigh_t *shortlist = l_pm.shortlist;
   int map[ntypes + 1];
-  int elem2param[nelements][nelements][nelements];
-  tersoff_param_t params[nparams], params3[nelements][nelements][nelements];
+  tersoff_param_t params3[nelements][nelements][nelements];
   int nep3 = nelements * nelements * nelements;
   tersoff_thb_param_t thb_param_stor[nep3 + 1];
 
@@ -354,15 +344,13 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   repulsive_param_t (*repul_param)[nelements] = align_ptr(repul_param_stor);
 
   pe_get(l_pm.map, map, sizeof(int) * (ntypes + 1));
-  pe_get(l_pm.elem2param, elem2param, sizeof(int) * nep3);
-  pe_get(l_pm.params, params, sizeof(tersoff_param_t) * nparams);
+  pe_get(l_pm.params, params3, sizeof(tersoff_param_t) * nelements * nelements * nelements);
   pe_syn();
 
   int t1, t2, t3;
   for (t1 = 0; t1 < nelements; t1 ++){
     for (t2 = 0; t2 < nelements; t2 ++){
       for (t3 = 0; t3 < nelements; t3 ++){
-        params3[t1][t2][t3] = params[elem2param[t1][t2][t3]];
         thb_param[t1][t2][t3].lam3 = params3[t1][t2][t3].lam3;
         thb_param[t1][t2][t3].bigr = params3[t1][t2][t3].bigr;
         thb_param[t1][t2][t3].bigd = params3[t1][t2][t3].bigd;
@@ -442,14 +430,15 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     int iwr = iwe - ist;
     int i;
     pe_get(x + ist, xi, sizeof(double) * 3 * isz);
-    /* pe_get(numshort + ist, nn, sizeof(int) * isz); */
+    pe_syn();
     pe_get(type + ist, ti, sizeof(int) * isz);
     pe_syn();
     pe_get(l_pm.firstneigh + ist, firstneigh_local, sizeof(int*) * isz);
+    pe_syn();
     pe_get(l_pm.numneigh + ist, numneigh_local, sizeof(int) * isz);
     pe_syn();
-
-
+    int shortneigh_offset = ist * maxshort;
+    int nshortsum = 0;
     for (i = ist; i < ied; i ++){
       int ioff = i - ist;
       int itype = map[ti[ioff]];
@@ -475,6 +464,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         factor3_base_v4 = simd_bcastf(THIRD);
       else
         factor3_base_v4 = simd_bcastf(0.0);
+
       int jj, jjj;
       int jst, jed;
       //lwpf_start(repulsive);
@@ -559,8 +549,8 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 rinv_v4 = one_v4 / r_v4;
 
           doublev4 angle_v4 = pi2_v4 * (r_v4 - bigr_v4) * bigdinv_v4;
-          doublev4 fc_v4 = half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4));
-          doublev4 fc_d_v4 = -(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4);
+          doublev4 fc_v4 = zero_v4; //half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4));
+          doublev4 fc_d_v4 = zero_v4; //-(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4);
           doublev4 rhi_v4 = r_v4 - (bigr_v4 + bigd_v4);
           doublev4 rlo_v4 = r_v4 - (bigr_v4 - bigd_v4);
           fc_v4 = simd_vsellt(rlo_v4, one_v4, fc_v4);
@@ -628,11 +618,17 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         }
       }
       //lwpf_stop(repulsive);
-      numshort_local[ioff] = nshort;
-      pe_put(l_pm.shortidx + i * maxshort, shortidx_local, sizeof(int) * nshort);
       int nshortpad = nshort + 3 & ~3;
+      numshort_local[ioff] = nshortpad;
+
       for (jj = nshort; jj < nshortpad; jj ++){
-        short_neigh[jj].idx = -1;
+        shortidx_local[jj] = nlocal;
+      }
+
+      pe_put(l_pm.shortidx + i * maxshort, shortidx_local, sizeof(int) * nshortpad);
+      pe_syn();
+      for (jj = nshort; jj < nshortpad; jj ++){
+        short_neigh[jj].idx = nlocal;
         short_neigh[jj].type = 0;
         short_neigh[jj].padding = 1;
       }
@@ -641,7 +637,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       doublev4 *fend_v4 = align_ptr(fend_stor);
 
       doublev4 v4_0 = 0.0;
-      for (jj = 0; jj < nshort; jj ++){
+      for (jj = 0; jj < nshortpad; jj ++){
         fend_v4[jj] = v4_0;
       }
       for (jjj = 0; jjj < nshortpad; jjj += 4){
@@ -792,10 +788,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 fc_v4 = simd_bcastf(fc_i[kk]);
           fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, simd_bcastf(0.0));
           zeta_ij_v4 = zeta_ij_v4 + fc_v4 * gijk_j_v4[kk] * ex_delr_j_v4[kk];
-          //simd_store(zeta_ij_v4, zeta_ij_4);
-          //simd_store(ex_delr_j_v4, ex_delr_j[kk]);
-          //simd_store(gijk_j_v4, gijk_j[kk]);
-          //simd_store(gijk_d_j_v4, gijk_d_j[kk]);
         }
         //lwpf_stop(zeta);
         //lwpf_start(force_zeta);
@@ -983,7 +975,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         }
         //lwpf_stop(attractive);
       }
-      pe_put(l_pm.fend[i * maxshort], fend_v4, sizeof(doublev4) * nshort);
+      pe_put(l_pm.fend[i * maxshort], fend_v4, sizeof(doublev4) * nshortpad);
       simd_vsumd(fxtmp_v4);
       simd_vsumd(fytmp_v4);
       simd_vsumd(fztmp_v4);
@@ -994,9 +986,11 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
     }
     if (iwr > 0){
       pe_put(f + ist, fi, sizeof(double) * iwr * 3);
+      pe_syn();
     }
     pe_put(l_pm.numshort + ist, numshort_local, sizeof(int) * isz);
     pe_syn();
+    progress = ist;
   }
 
   simd_vsumd(eng_vdwl_v4);
@@ -1030,6 +1024,14 @@ void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
   doublev4 v4_0 = 0;
   for (i = 0; i < ISTEP; i += 8){
     simd_store(v8_n1, n1s + i);
+    zeros[i + 0] = v4_0;
+    zeros[i + 1] = v4_0;
+    zeros[i + 2] = v4_0;
+    zeros[i + 3] = v4_0;
+    zeros[i + 4] = v4_0;
+    zeros[i + 5] = v4_0;
+    zeros[i + 6] = v4_0;
+    zeros[i + 7] = v4_0;
   }
   for (ipage_start = ISTEP * _MYID; ipage_start < inum; ipage_start += ISTEP * 64){
     int ipage_end = ipage_start + ISTEP;
@@ -1047,7 +1049,7 @@ void pair_tersoff_a2s(pair_tersoff_compute_param_t *pm){
     }
     pe_put(l_pm.atom_in + ipage_start, atom_in, sizeof(atom_in_t) * ipage_size);
     pe_put(l_pm.numshort + ipage_start, n1s, sizeof(int) * ipage_size);
-    //pe_put(l_pm.ftmp[ipage_start], zeros, sizeof(doublev4) * ipage_size);
+    pe_put(l_pm.ftmp[ipage_start], zeros, sizeof(doublev4) * ipage_size);
     pe_syn();
   }
 }

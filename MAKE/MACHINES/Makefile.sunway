@@ -26,7 +26,7 @@ SLAVE_CC =	sw5cc -slave
 SLAVE_CFLAGS = -O2 -msimd -DCPE -g
 
 HOST_CC =	mpicc -host
-HOST_CFLAGS = -O2 -msimd -DMPE -g
+HOST_CFLAGS = -O3 -msimd -DMPE -g
 
 ARCHIVE =	ar
 ARFLAGS =	-rc

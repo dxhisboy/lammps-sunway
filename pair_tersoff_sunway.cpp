@@ -180,50 +180,78 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   short_neigh_t *shortlist;
 
   tersoff_param_t *cparams;
-  //double **prefactor;
-  //memory->create(prefactor, neighoff[allnum], 2, "pair:prefactor");
-  // memory->create(firstshort, allnum + 1, "pair:numshort");
-  // memory->create(shortlist, neightotal, "pair:shortlist");
-  memory->create(cparams, nparams, "pair:cparams");
+  memory->create(cparams, nelements * nelements * nelements, "pair:cparams");
+  int t0, t1, t2;
+  for (t0 = 0; t0 < nelements; t0 ++){
+    for (t1 = 0; t1 < nelements; t1 ++){
+      for (t2 = 0; t2 < nelements; t2 ++){
+        int idx_new = (t0 * nelements + t1) * nelements + t2;
+        int idx_old = elem2param[t0][t1][t2];
+        cparams[idx_new].lam1        = params[idx_old].lam1       ;
+        cparams[idx_new].lam2        = params[idx_old].lam2       ;
+        cparams[idx_new].lam3        = params[idx_old].lam3       ;
+        cparams[idx_new].c           = params[idx_old].c          ;
+        cparams[idx_new].d           = params[idx_old].d          ;
+        cparams[idx_new].h           = params[idx_old].h          ;
+        cparams[idx_new].gamma       = params[idx_old].gamma      ;
+        //cparams[idx_new].powerm      = params[idx_old].powerm     ;
+        cparams[idx_new].powern      = params[idx_old].powern     ;
+        cparams[idx_new].half_powern_inv = 1 / (2.0 * params[idx_old].powern);
+        cparams[idx_new].beta        = params[idx_old].beta       ;
+        cparams[idx_new].biga        = params[idx_old].biga       ;
+        cparams[idx_new].bigb        = params[idx_old].bigb       ;
+        cparams[idx_new].bigd        = params[idx_old].bigd       ;
+        cparams[idx_new].bigdinv     = 1 / params[idx_old].bigd   ;
+        cparams[idx_new].c2divd2     = params[idx_old].c * params[idx_old].c /
+          (params[idx_old].d * params[idx_old].d);
+        cparams[idx_new].bigr        = params[idx_old].bigr       ;
+        //cparams[idx_new].cut         = params[idx_old].cut        ;
+        cparams[idx_new].cutsq       = params[idx_old].cutsq      ;
+        cparams[idx_new].c1          = params[idx_old].c1         ;
+        cparams[idx_new].c4          = params[idx_old].c4         ;
+        cparams[idx_new].powermint   = params[idx_old].powermint  ;
 
-  for (i = 0; i < nparams; i ++){
-    cparams[i].lam1        = params[i].lam1       ;
-    cparams[i].lam2        = params[i].lam2       ;
-    cparams[i].lam3        = params[i].lam3       ;
-    cparams[i].c           = params[i].c          ;
-    cparams[i].d           = params[i].d          ;
-    cparams[i].h           = params[i].h          ;
-    cparams[i].gamma       = params[i].gamma      ;
-    cparams[i].powerm      = params[i].powerm     ;
-    cparams[i].powern      = params[i].powern     ;
-    cparams[i].half_powern_inv = 1 / (2.0 * params[i].powern);
-    cparams[i].beta        = params[i].beta       ;
-    cparams[i].biga        = params[i].biga       ;
-    cparams[i].bigb        = params[i].bigb       ;
-    cparams[i].bigd        = params[i].bigd       ;
-    cparams[i].bigdinv     = 1 / params[i].bigd   ;
-    cparams[i].c2divd2     = params[i].c * params[i].c / (params[i].d * params[i].d);
-    cparams[i].bigr        = params[i].bigr       ;
-    cparams[i].cut         = params[i].cut        ;
-    cparams[i].cutsq       = params[i].cutsq      ;
-    cparams[i].c1          = params[i].c1         ;
-    cparams[i].c2          = params[i].c2         ;
-    cparams[i].c3          = params[i].c3         ;
-    cparams[i].c4          = params[i].c4         ;
-    cparams[i].ielement    = params[i].ielement   ;
-    cparams[i].jelement    = params[i].jelement   ;
-    cparams[i].kelement    = params[i].kelement   ;
-    cparams[i].powermint   = params[i].powermint  ;
-    cparams[i].Z_i         = params[i].Z_i        ;
-    cparams[i].Z_j         = params[i].Z_j        ;
-    cparams[i].ZBLcut      = params[i].ZBLcut     ;
-    cparams[i].ZBLexpscale = params[i].ZBLexpscale;
-    cparams[i].c5          = params[i].c5         ;
-    cparams[i].ca1         = params[i].ca1        ;
-    cparams[i].ca4         = params[i].ca4        ;
-    cparams[i].powern_del  = params[i].powern_del ;
-    cparams[i].c0          = params[i].c0         ;
+      }
+    }
   }
+  // for (i = 0; i < nparams; i ++){
+  //   cparams[i].lam1        = params[i].lam1       ;
+  //   cparams[i].lam2        = params[i].lam2       ;
+  //   cparams[i].lam3        = params[i].lam3       ;
+  //   cparams[i].c           = params[i].c          ;
+  //   cparams[i].d           = params[i].d          ;
+  //   cparams[i].h           = params[i].h          ;
+  //   cparams[i].gamma       = params[i].gamma      ;
+  //   cparams[i].powerm      = params[i].powerm     ;
+  //   cparams[i].powern      = params[i].powern     ;
+  //   cparams[i].half_powern_inv = 1 / (2.0 * params[i].powern);
+  //   cparams[i].beta        = params[i].beta       ;
+  //   cparams[i].biga        = params[i].biga       ;
+  //   cparams[i].bigb        = params[i].bigb       ;
+  //   cparams[i].bigd        = params[i].bigd       ;
+  //   cparams[i].bigdinv     = 1 / params[i].bigd   ;
+  //   cparams[i].c2divd2     = params[i].c * params[i].c / (params[i].d * params[i].d);
+  //   cparams[i].bigr        = params[i].bigr       ;
+  //   cparams[i].cut         = params[i].cut        ;
+  //   cparams[i].cutsq       = params[i].cutsq      ;
+  //   cparams[i].c1          = params[i].c1         ;
+  //   cparams[i].c2          = params[i].c2         ;
+  //   cparams[i].c3          = params[i].c3         ;
+  //   cparams[i].c4          = params[i].c4         ;
+  //   cparams[i].ielement    = params[i].ielement   ;
+  //   cparams[i].jelement    = params[i].jelement   ;
+  //   cparams[i].kelement    = params[i].kelement   ;
+  //   cparams[i].powermint   = params[i].powermint  ;
+  //   cparams[i].Z_i         = params[i].Z_i        ;
+  //   cparams[i].Z_j         = params[i].Z_j        ;
+  //   cparams[i].ZBLcut      = params[i].ZBLcut     ;
+  //   cparams[i].ZBLexpscale = params[i].ZBLexpscale;
+  //   cparams[i].c5          = params[i].c5         ;
+  //   cparams[i].ca1         = params[i].ca1        ;
+  //   cparams[i].ca4         = params[i].ca4        ;
+  //   cparams[i].powern_del  = params[i].powern_del ;
+  //   cparams[i].c0          = params[i].c0         ;
+  // }
 
   pair_tersoff_compute_param_t pm;
   pm.cutshortsq = cutmax * cutmax;
