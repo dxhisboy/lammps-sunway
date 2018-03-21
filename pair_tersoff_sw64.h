@@ -19,12 +19,6 @@ extern "C"{
     /* double powern_del; */
     /* double c0;                   // added for TersoffMODC */
   } tersoff_param_t;
-  typedef struct short_neigh_t{
-    //double prefactor_fwd, prefactor_rev;
-    double d[3], r2, rinv;
-    long type, idx;
-    double padding;
-  } short_neigh_t;
 
   typedef struct pair_tersoff_compute_param_t{
     int *ilist, *numneigh, **firstneigh, *numshort;
@@ -33,7 +27,6 @@ extern "C"{
     int *fdone;
     long fend_base, fdone_base, ftmp_base, atom_in_base;
     int maxshort, cutshortsq;
-    short_neigh_t *shortlist;
     int *shortidx;
     //global params
     int *elem2param, *map;

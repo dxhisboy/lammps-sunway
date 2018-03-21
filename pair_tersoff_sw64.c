@@ -60,7 +60,7 @@ void pair_tersoff_compute_attractive(pair_tersoff_compute_param_t *pm){
   int ntotal = pm->ntotal;
   int *firstshort = pm->firstshort;
   double (*f)[3] = pm->f;
-  short_neigh_t *shortlist = pm->shortlist;
+  //short_neigh_t *shortlist = pm->shortlist;
   int *shortidx = pm->shortidx;
   int nlocal = pm->nlocal;
   int maxshort = pm->maxshort;
@@ -256,9 +256,19 @@ void v_tally3rd(int i, int j, int k, int nlocal, int vflag_global, int vflag_ato
 #define LMASK (LINECNT - 1)
 #include <dma.h>
 //biga, bigr, bigd, bigdinv, lam1, cutsq
+typedef struct short_neigh_t{
+  double d[3], r2, rinv;
+  long type, idx;
+  double skip;
+} short_neigh_t;
+
 typedef struct repulsive_param_t{
   double biga, bigr, bigd, bigdinv, lam1, cutsq, padding1, padding2;
 } repulsive_param_t;
+typedef struct fz_param_t{
+  double bigr, bigd, bigb, lam2;
+  double beta, powern, half_powern_inv, padding;
+} fz_param_t;
 typedef struct tersoff_param3_v4_t{
   doublev4 lam3, bigr, bigd, bigb, bigdinv, c, d, c2divd2;
   doublev4 h, gamma;
@@ -278,18 +288,22 @@ typedef union tersoff_param3_u{
   tersoff_param3_4_t  sca;
 } tersoff_param3_u;
 typedef struct tersoff_param2_v4_t{
-  doublev4 bigr, bigd, bigb, lam2, c1, c4, beta, powern, half_powern_inv, padding;
+  doublev4 bigr, bigd, bigb;
+  doublev4 lam2, beta, powern, half_powern_inv, padding;
   doublev4 skip_f, skip_ev;
 } tersoff_param2_v4_t;
 typedef struct tersoff_param2_4_t{
   double bigr[4], bigd[4], bigb[4];
-  double lam2[4], c1[4], c4[4], beta[4], powern[4], half_powern_inv[4], padding[4];
+  double lam2[4], beta[4], powern[4], half_powern_inv[4], padding[4];
   double skip_f[4], skip_ev[4];
 } tersoff_param2_4_t;
 typedef union tersoff_param2_u{
   tersoff_param2_v4_t vec;
   tersoff_param2_4_t  sca;
 } tersoff_param2_u;
+#define vmatch(r, a, b) \
+  asm("vmatch %1, %2, %0" : "=r"(r) : "r"(a), "r"(b))
+
 #define simd_bcastf(x) simd_vshff((doublev4)(x), (doublev4)(x), 0)
 #define align_ptr(x) (void*)(((long)(x)) + 31 & ~31)
 #define transpose4x4_2x4(in0, in1, in2, in3, ot0, ot1) {                \
@@ -314,7 +328,6 @@ typedef union tersoff_param2_u{
     x += simd_vshff(x, x, vshuffd_rc(2, 3, 0, 1));      \
     x += simd_vshff(x, x, vshuffd_rc(1, 0, 3, 2));      \
   } 
-
 //#define LWPF_KERNELS _K(all) K(repulsive) K(repulsive_load) K(repulsive_comp) K(repulsive_trans) K(attractive) K(zeta) K(force_zeta) K(parampack2) K(jboot) K(snwrite) K(jlist_load)
 //#define LWPF_UNIT U(TERSOFF)
 //#include "lwpf.h"
@@ -329,6 +342,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
 
   rank = l_pm.rank;
   int nlocal = l_pm.nlocal;
+  int256 nlocals1_v4 = simd_set_int256(nlocal - 1, nlocal - 1, nlocal - 1, nlocal - 1);
   int nghost = l_pm.nghost;
   int ntotal = l_pm.ntotal;
   int inum = l_pm.inum;
@@ -336,20 +350,21 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int ntypes = l_pm.ntypes;
   int rank = l_pm.rank;
   int nelements = l_pm.nelements;
-  int nparams = l_pm.nparams;
-  int vflag_global = l_pm.vflag_global;
-  int vflag_atom = l_pm.vflag_atom;
-  int vflag_either = l_pm.vflag_either;
+  /* int nparams = l_pm.nparams; */
+  /* int vflag_global = l_pm.vflag_global; */
+  /* int vflag_atom = l_pm.vflag_atom; */
+  /* int vflag_either = l_pm.vflag_either; */
   int *ilist = l_pm.ilist;
   int *firstshort = l_pm.firstshort;
   int maxshort = l_pm.maxshort;
-  short_neigh_t *shortlist = l_pm.shortlist;
+  //short_neigh_t *shortlist = l_pm.shortlist;
   int map[ntypes + 1];
   tersoff_param_t params3[nelements][nelements][nelements];
   int nep3 = nelements * nelements * nelements;
   tersoff_thb_param_t thb_param_stor[nep3 + 1];
-
   tersoff_thb_param_t (*thb_param)[nelements][nelements] = align_ptr(&thb_param_stor);
+  fz_param_t fz_param_stor[nelements * nelements + 1];
+  fz_param_t (*fz_param)[nelements] = align_ptr(fz_param_stor);
   repulsive_param_t repul_param_stor[nelements * nelements + 1];
   repulsive_param_t (*repul_param)[nelements] = align_ptr(repul_param_stor);
 
@@ -381,14 +396,21 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           repul_param[t1][t2].bigdinv = params3[t1][t2][t3].bigdinv;
           repul_param[t1][t2].lam1    = params3[t1][t2][t3].lam1   ;
           repul_param[t1][t2].cutsq   = params3[t1][t2][t3].cutsq  ;
+          fz_param[t1][t2].bigr            = params3[t1][t2][t3].bigr           ;
+          fz_param[t1][t2].bigd            = params3[t1][t2][t3].bigd           ;
+          fz_param[t1][t2].bigb            = params3[t1][t2][t3].bigb           ;
+          fz_param[t1][t2].lam2            = params3[t1][t2][t3].lam2           ;
+          fz_param[t1][t2].beta            = params3[t1][t2][t3].beta           ;
+          fz_param[t1][t2].powern          = params3[t1][t2][t3].powern         ;
+          fz_param[t1][t2].half_powern_inv = params3[t1][t2][t3].half_powern_inv;
         }
       }
     }
   }
   double (*x)[3] = l_pm.x;
   double (*f)[3] = l_pm.f;
-  double (*vatom)[6] = l_pm.vatom;
-  double *eatom = l_pm.eatom;
+  /* double (*vatom)[6] = l_pm.vatom; */
+  /* double *eatom = l_pm.eatom; */
 
   int *type = l_pm.type;
   int ii;
@@ -396,10 +418,10 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
   int *firstneigh_local[ISTEP];
   int numneigh_local[ISTEP];
   int jlist_local[ISTEP];
-  int shortidx_local[ISTEP];
   double fi[ISTEP][3], xi[ISTEP][3];
   int ti[ISTEP];
   int *numshort = l_pm.numshort;
+  int shortidx_local[maxshort];
   short_neigh_t short_neigh_stor[maxshort + 1];
   short_neigh_t *short_neigh = align_ptr(short_neigh_stor);
   doublev4 eng_virial_v4[2];
@@ -474,13 +496,9 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       doublev4 fztmp_v4 = 0.0;
       doublev4 fac2_base_v4 = 0.0, fac3_base_v4 = 0.0;
       if (i < nlocal){
-        fac2_base_v4 += half_v4;//simd_bcastf(HALF);
-        fac3_base_v4 += third_v4;//simd_bcastf(THIRD);
+        fac2_base_v4 += half_v4;
+        fac3_base_v4 += third_v4;
       }
-      /* if (!_MYID){ */
-      /*   print_vec(fac2_base_v4); */
-      /*   print_vec(fac3_base_v4); */
-      /* } */
       int jj, jjj;
       int jst, jed;
       //lwpf_start(repulsive);
@@ -493,10 +511,10 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         pe_get(jlist + jst, jlist_local, sizeof(int) * jsz);
         pe_syn();
         //lwpf_stop(jlist_load);
-        doublev4 xj_v4[3], jatom_v4[4], padding_v4;
+        doublev4 xj_v4[3], jatom_v4[4], type_v4;
         int padding[8]; double skip_4[4];
         for (jjj = 0; jjj < jsz; jjj += 4){
-          double j_4[4];
+          int j_4[4];
           atom_in_t *jatom;
           //lwpf_start(repulsive_load);
           for (jj = 0; jj < 4; jj ++){
@@ -524,8 +542,8 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           //lwpf_stop(repulsive_load);
           //lwpf_start(repulsive_trans);
           transpose4x4(jatom_v4[0], jatom_v4[1], jatom_v4[2], jatom_v4[3],
-                       xj_v4[0], xj_v4[1], xj_v4[2], padding_v4);
-          simd_store(padding_v4, padding);
+                       xj_v4[0], xj_v4[1], xj_v4[2], type_v4);
+          simd_store(type_v4, padding);
           doublev4 skip_v4;
           simd_load(skip_v4, skip_4);
           doublev4 xi_v4[3];
@@ -564,15 +582,35 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 r_v4 = simd_vsqrtd(r2ij_v4);
           doublev4 rinv_v4 = one_v4 / r_v4;
 
-          doublev4 angle_v4 = pi2_v4 * (r_v4 - bigr_v4) * bigdinv_v4;
-          doublev4 fc_v4 = half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4));
-          doublev4 fc_d_v4 = -(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4);
-          doublev4 rhi_v4 = r_v4 - (bigr_v4 + bigd_v4);
-          doublev4 rlo_v4 = r_v4 - (bigr_v4 - bigd_v4);
-          fc_v4 = simd_vsellt(rlo_v4, one_v4, fc_v4);
-          fc_d_v4 = simd_vsellt(rlo_v4, zero_v4, fc_d_v4);
-          fc_v4 = simd_vsellt(rhi_v4, fc_v4, zero_v4);
-          fc_d_v4 = simd_vsellt(rhi_v4, fc_d_v4, zero_v4);
+          /* doublev4 fc_v4 = half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4)); */
+          /* doublev4 fc_d_v4 = -(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4); */
+          /* doublev4 rhi_fc_v4 = r_v4 - (bigr_v4 + bigd_v4); */
+          /* doublev4 rlo_fc_v4 = r_v4 - (bigr_v4 - bigd_v4); */
+          /* doublev4 r_in_range_v4; */
+          /* r_in_range_v4 = simd_vsellt(rlo_fc_v4, zero_v4, two_v4); */
+          /* r_in_range_v4 = simd_vsellt(rhi_fc_v4, r_in_range_v4, zero_v4); */
+          doublev4 rgt_fc_v4 = simd_vfcmplt(bigr_v4 + bigd_v4, r_v4); //r < sum
+          doublev4 rlt_fc_v4 = simd_vfcmplt(r_v4, bigr_v4 - bigd_v4); //r > diff
+          doublev4 r_in_range_v4;
+          asm ("vlog2x1 %1, %2, %0\n\t": "=r"(r_in_range_v4): "r"(rgt_fc_v4), "r"(rlt_fc_v4));
+          int r_in_range = 0;
+          vmatch(r_in_range, r_in_range_v4, 1073741824);
+          doublev4 fc_v4 = zero_v4, fc_d_v4 = zero_v4;
+          if (r_in_range){
+            doublev4 angle_v4 = pi2_v4 * (r_v4 - bigr_v4) * bigdinv_v4;
+            fc_v4 = half_v4 * (one_v4 - simd_vsinnpi_pid(angle_v4));
+            fc_d_v4 = -(pi4_v4 * bigdinv_v4) * simd_vcosnpi_pid(angle_v4);
+          }
+          fc_v4 = simd_vselle(rlt_fc_v4, fc_v4, one_v4);
+          fc_d_v4 = simd_vselle(rlt_fc_v4, fc_d_v4, zero_v4);
+          fc_v4 = simd_vselle(rgt_fc_v4, fc_v4, zero_v4);
+          fc_d_v4 = simd_vselle(rgt_fc_v4, fc_d_v4, zero_v4);
+          /* fc_v4 = simd_vselle(rgt_fc_v4, fc_v4, zero_v4); */
+          /* fc_d_v4 = simd_vselle(rgt_fc_v4, fc_v4, zero_v4); */
+          /* fc_v4 = simd_vsellt(rlo_fc_v4, one_v4, fc_v4); */
+          /* fc_d_v4 = simd_vsellt(rlo_fc_v4, zero_v4, fc_d_v4); */
+          /* fc_v4 = simd_vsellt(rhi_fc_v4, fc_v4, zero_v4); */
+          /* fc_d_v4 = simd_vsellt(rhi_fc_v4, fc_d_v4, zero_v4); */
           doublev4 tmp_exp_v4 = simd_vexpd(-lam1_v4 * r_v4);
           tmp_exp_v4 = simd_vsellt(dcutsq_v4, tmp_exp_v4, zero_v4);
           doublev4 fpair_v4 = -biga_v4 * tmp_exp_v4 * (fc_d_v4 - fc_v4 * lam1_v4) * rinv_v4;
@@ -621,7 +659,7 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
                 short_neigh[nshort].d[1] = -dij_4[1][jj];
                 short_neigh[nshort].d[2] = -dij_4[2][jj];
                 short_neigh[nshort].r2   = r2ij;
-                short_neigh[nshort].padding = 0;
+                short_neigh[nshort].skip = 0;
                 short_neigh[nshort].rinv = rinv_4[jj];
                 shortidx_local[nshort] = j_4[jj];
                 fc_i[nshort] = fc_4[jj];
@@ -636,9 +674,9 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
       //lwpf_stop(repulsive);
       int nshortpad = nshort + 3 & ~3;
       for (jj = nshort; jj < nshortpad; jj ++){
-        short_neigh[jj].idx = nlocal;
+        short_neigh[jj].idx = -1;
         short_neigh[jj].type = 0;
-        short_neigh[jj].padding = 1;
+        short_neigh[jj].skip = 1;
       }
 
       doublev4 fend_stor[nshortpad + 1];
@@ -668,14 +706,20 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         transpose4x4(jshort_lo0, jshort_lo1, jshort_lo2, jshort_lo3,
                      dij_v4[0], dij_v4[1], dij_v4[2], r2ij_v4);
 
-        doublev4 idx_v4, type_v4, padding_v4;
+        doublev4 idx_v4, type_v4, j_is_padding;
         transpose4x4(jshort_hi0, jshort_hi1, jshort_hi2, jshort_hi3,
-                     rijinv_v4, type_v4, idx_v4, padding_v4);
-        long jtype_4[4], j_4[4];
+                     rijinv_v4, type_v4, idx_v4, j_is_padding);
+        doublev4 j_is_ghost;
+        long jtype_4[4];//, j_4[4];
+        //simd_store(idx_v4, j_4);
+        asm("vsubl %1, %2, %0\n\t"
+            "vcpys %0, %3, %0\n\t"
+            "vsellt %0, %3, $31, %0\n\t"
+            : "=r"(j_is_ghost)
+            : "r"(nlocals1_v4), "r"(idx_v4), "r"(one_v4));
         simd_store(type_v4, jtype_4);
-        simd_store(idx_v4, j_4);
         rij_v4 = rijinv_v4 * r2ij_v4;
-
+        
         doublev4 rij_hat_v4[3];
         rij_hat_v4[0] = dij_v4[0] * rijinv_v4;
         rij_hat_v4[1] = dij_v4[1] * rijinv_v4;
@@ -685,21 +729,73 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         //lwpf_start(parampack2);
         tersoff_param2_u param2_stor;
         tersoff_param2_u *param2 = (void*)(((long)(&param2_stor)) + 31 & ~31);
-        for (jj = jjj; jj < jjj + 4; jj ++){
-          int jjoff = jj - jjj;
-          tersoff_param_t *param_ij = params3[itype][jtype_4[jjoff]] + jtype_4[jjoff];
-          param2->sca.lam2           [jjoff] = param_ij->lam2           ;
-          param2->sca.bigr           [jjoff] = param_ij->bigr           ;
-          param2->sca.bigd           [jjoff] = param_ij->bigd           ;
-          param2->sca.bigb           [jjoff] = param_ij->bigb           ;
-          param2->sca.c1             [jjoff] = param_ij->c1             ;
-          param2->sca.c4             [jjoff] = param_ij->c4             ;
-          param2->sca.beta           [jjoff] = param_ij->beta           ;
-          param2->sca.powern         [jjoff] = param_ij->powern         ;
-          param2->sca.half_powern_inv[jjoff] = param_ij->half_powern_inv;
-          param2->sca.skip_f         [jjoff] = j_4[jjoff] == -1         ;
-          param2->sca.skip_ev        [jjoff] = j_4[jjoff] == -1 || j_4[jjoff] >= nlocal;
-        }
+        //doublev4 params2
+        fz_param_t *param_ij0, *param_ij1, *param_ij2, *param_ij3;
+        param_ij0 = fz_param[itype] + jtype_4[0];
+        param_ij1 = fz_param[itype] + jtype_4[1];
+        param_ij2 = fz_param[itype] + jtype_4[2];
+        param_ij3 = fz_param[itype] + jtype_4[3];
+        doublev4 param_ij_lo0, param_ij_lo1, param_ij_lo2, param_ij_lo3;
+        doublev4 param_ij_hi0, param_ij_hi1, param_ij_hi2, param_ij_hi3;
+        simd_load(param_ij_lo0, ((void*)(param_ij0)));
+        simd_load(param_ij_lo1, ((void*)(param_ij1)));
+        simd_load(param_ij_lo2, ((void*)(param_ij2)));
+        simd_load(param_ij_lo3, ((void*)(param_ij3)));
+
+        simd_load(param_ij_hi0, ((void*)(param_ij0)) + 32);
+        simd_load(param_ij_hi1, ((void*)(param_ij1)) + 32);
+        simd_load(param_ij_hi2, ((void*)(param_ij2)) + 32);
+        simd_load(param_ij_hi3, ((void*)(param_ij3)) + 32);
+        transpose4x4(param_ij_lo0, param_ij_lo1, param_ij_lo2, param_ij_lo3,
+                     param2->vec.bigr, param2->vec.bigd, param2->vec.bigb, param2->vec.lam2);
+        transpose4x4(param_ij_hi0, param_ij_hi1, param_ij_hi2, param_ij_hi3,
+                     param2->vec.beta, param2->vec.powern,
+                     param2->vec.half_powern_inv, param2->vec.padding);
+        /* if (!_MYID){ */
+        /*   print_vec(param2->vec.bigr); */
+        /*   print_vec(param2->vec.bigd); */
+        /*   print_vec(param2->vec.bigb); */
+        /*   print_vec(param2->vec.lam2); */
+        /*   print_vec(param2->vec.beta); */
+        /*   print_vec(param2->vec.powern); */
+        /*   print_vec(param2->vec.half_powern_inv); */
+
+        /* } */
+        /* for (jj = jjj; jj < jjj + 4; jj ++){ */
+        /*   int jjoff = jj - jjj; */
+        /*   tersoff_param_t *param_ij = params3[itype][jtype_4[jjoff]] + jtype_4[jjoff]; */
+        /*   param2->sca.lam2           [jjoff] = param_ij->lam2           ; */
+        /*   param2->sca.bigr           [jjoff] = param_ij->bigr           ; */
+        /*   param2->sca.bigd           [jjoff] = param_ij->bigd           ; */
+        /*   param2->sca.bigb           [jjoff] = param_ij->bigb           ; */
+        /*   /\* param2->sca.c1             [jjoff] = param_ij->c1             ; *\/ */
+        /*   /\* param2->sca.c4             [jjoff] = param_ij->c4             ; *\/ */
+        /*   param2->sca.beta           [jjoff] = param_ij->beta           ; */
+        /*   param2->sca.powern         [jjoff] = param_ij->powern         ; */
+        /*   param2->sca.half_powern_inv[jjoff] = param_ij->half_powern_inv; */
+        /*   /\* param2->sca.skip_f         [jjoff] = j_4[jjoff] == -1         ; *\/ */
+        /*   /\* param2->sca.skip_ev        [jjoff] = j_4[jjoff] == -1 || j_4[jjoff] >= nlocal; *\/ */
+        /* } */
+        /* if (!_MYID){ */
+        /*   print_vec(param2->vec.bigr); */
+        /*   print_vec(param2->vec.bigd); */
+        /*   print_vec(param2->vec.bigb); */
+        /*   print_vec(param2->vec.lam2); */
+        /*   print_vec(param2->vec.beta); */
+        /*   print_vec(param2->vec.powern); */
+        /*   print_vec(param2->vec.half_powern_inv); */
+        /* } */
+        param2->vec.skip_f = j_is_padding;
+        /* if (!_MYID && (j_4[0] >= nlocal || j_4[1] >= nlocal || j_4[2] >= nlocal || j_4[3] >=nlocal)){ */
+        /*   print_vec(param2->vec.skip_ev); */
+        /* } */
+        asm ("vbisw %1, %2, %0\n\t"
+             : "=r"(param2->vec.skip_ev)
+             : "r"(j_is_padding), "r"(j_is_ghost));
+        /* if (!_MYID && (j_4[0] >= nlocal || j_4[1] >= nlocal || j_4[2] >= nlocal || j_4[3] >=nlocal)){ */
+        /*   print_vec(param2->vec.skip_ev); */
+        /* } */
+
         //lwpf_stop(parampack2);
         int kk;
         doublev4 ex_delr_j_stor[nshort + 1][4];
@@ -714,13 +810,13 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         for (kk = 0; kk < nshort; kk ++){
           short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;
-          double dik[3];
-          dik[0] = kshort->d[0];
-          dik[1] = kshort->d[1];
-          dik[2] = kshort->d[2];
-          double r2ik = kshort->r2;
-          double rikinv = kshort->rinv;
-          double rik = rikinv * r2ik;
+          /* double dik[3]; */
+          /* dik[0] = kshort->d[0]; */
+          /* dik[1] = kshort->d[1]; */
+          /* dik[2] = kshort->d[2]; */
+          /* double r2ik = kshort->r2; */
+          /* double rikinv = kshort->rinv; */
+          /* double rik = rikinv * r2ik; */
           void *param_ij0k = thb_param[itype][jtype_4[0]] + ktype;
           void *param_ij1k = thb_param[itype][jtype_4[1]] + ktype;
           void *param_ij2k = thb_param[itype][jtype_4[2]] + ktype;
@@ -751,8 +847,8 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
                        param3[kk].vec.h, param3[kk].vec.gamma,
                        param3[kk].vec.power3, skip_v4);
           int kkoff = (kk - jjj) << 1;
-          doublev4 skipjk_v4 = simd_vshff(tf_mask_v4, tf_mask_v4, (1 << kkoff) & 255);
-          asm("vbisw %1, %2, %0": "=r"(param3[kk].vec.skip): "r"(skip_v4), "r"(skipjk_v4));
+          doublev4 j_equal_k = simd_vshff(tf_mask_v4, tf_mask_v4, (1 << kkoff) & 255);
+          asm("vbisw %1, %2, %0": "=r"(param3[kk].vec.skip): "r"(j_is_padding), "r"(j_equal_k));
         }
 
         //lwpf_stop(jboot);
@@ -760,13 +856,13 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         for (kk = 0; kk < nshort; kk ++){
           short_neigh_t *kshort = short_neigh + kk;
           int ktype = kshort->type;
-          double dik[3];
-          dik[0] = kshort->d[0];
-          dik[1] = kshort->d[1];
-          dik[2] = kshort->d[2];
-          double r2ik = kshort->r2;
-          double rikinv = kshort->rinv;
-          double rik = rikinv * r2ik;
+          /* double dik[3]; */
+          /* dik[0] = kshort->d[0]; */
+          /* dik[1] = kshort->d[1]; */
+          /* dik[2] = kshort->d[2]; */
+          /* double r2ik = kshort->r2; */
+          /* double rikinv = kshort->rinv; */
+          /* double rik = rikinv * r2ik; */
           doublev4 dik_v4[3];
           dik_v4[0] = simd_bcastf(kshort->d[0]);
           dik_v4[1] = simd_bcastf(kshort->d[1]);
@@ -788,16 +884,14 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 gamma_v4   = param3[kk].vec.gamma;
           doublev4 c2divd2_v4 = param3[kk].vec.c2divd2;
           doublev4 numerator_v4 = -two_v4 * ters_c_v4 * hcth_v4;
-          //simd_bcastf(-2.0) * ters_c_v4 * hcth_v4;
           doublev4 denominator_v4 = one_v4 / (ters_d_v4 + hcth_v4 * hcth_v4);
-          //simd_bcastf(1.0) / (ters_d_v4 + hcth_v4 * hcth_v4);
+
           gijk_j_v4[kk] = 
             gamma_v4*(one_v4 + c2divd2_v4 - ters_c_v4*denominator_v4);
-            //gamma_v4*(simd_bcastf(1.0) + c2divd2_v4 - ters_c_v4*denominator_v4);
+
           gijk_d_j_v4[kk] = gamma_v4*numerator_v4*denominator_v4*denominator_v4;
-          //simd_load(zeta_ij_v4, zeta_ij_4);
+
           doublev4 fc_v4 = simd_bcastf(fc_i[kk]);
-          //fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, simd_bcastf(0.0));
           fc_v4 = simd_vseleq(param3[kk].vec.skip, fc_v4, zero_v4);
           zeta_ij_v4 = zeta_ij_v4 + fc_v4 * gijk_j_v4[kk] * ex_delr_j_v4[kk];
         }
@@ -807,30 +901,51 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         doublev4 ters_D_v4 = param2->vec.bigd;
         doublev4 ters_B_v4 = param2->vec.bigb;
         doublev4 ters_lam2_v4 = param2->vec.lam2;
-        doublev4 er_v4 = simd_vexpd(-ters_lam2_v4 * rij_v4);
+        doublev4 rhi_fa_v4 = rij_v4 - (ters_R_v4 + ters_D_v4);
+        doublev4 r_in_fa_v4 = simd_vsellt(rhi_fa_v4, two_v4, zero_v4);
+        int r_in_fa = 0;
+        vmatch(r_in_fa, r_in_fa_v4, 1073741824);
         doublev4 fc_ij_v4;
         simd_load(fc_ij_v4, fc_i + jjj);
         doublev4 fc_d_ij_v4;
         simd_load(fc_d_ij_v4, fc_d_i + jjj);
-        doublev4 fa_v4 = -ters_B_v4 * er_v4 * fc_ij_v4;
-        doublev4 fa_d_v4 = ters_B_v4 * er_v4 * (ters_lam2_v4 * fc_ij_v4 - fc_d_ij_v4);
+
+        doublev4 fa_v4 = zero_v4, fa_d_v4 = zero_v4;
+        if (r_in_fa){
+          doublev4 er_v4 = simd_vexpd(-ters_lam2_v4 * rij_v4);
+          fa_v4 = -ters_B_v4 * er_v4 * fc_ij_v4;
+          fa_d_v4 = ters_B_v4 * er_v4 * (ters_lam2_v4 * fc_ij_v4 - fc_d_ij_v4);
+        }
         doublev4 beta_v4 = param2->vec.beta;
         doublev4 tmp_v4 = beta_v4 * zeta_ij_v4;
         doublev4 powern_v4 = param2->vec.powern;
         doublev4 half_powern_inv_v4 = param2->vec.half_powern_inv;
-        doublev4 c1_v4 = param2->vec.c1;
-        doublev4 c4_v4 = param2->vec.c4;
+        /* doublev4 c1_v4 = param2->vec.c1; */
+        /* doublev4 c4_v4 = param2->vec.c4; */
+        /* doublev4 tmp_lt_c1_v4 = simd_vfcmplt(tmp_v4, c1_v4); */
+        /* int tmp_lt_c1 = 0; */
+        /* vmatch(tmp_lt_c1, tmp_lt_c1_v4, 1073741824); */
+        /* doublev4 tmp_gt_c4_v4 = simd_vfcmplt(c4_v4, tmp_v4); */
+        /* int tmp_gt_c4 = 0; */
+        /* vmatch(tmp_gt_c4, tmp_gt_c4_v4, 1073741824); */
+
+        doublev4 bij_v4 = zero_v4, bij_d_v4 = zero_v4;
+        /* if (!tmp_gt_c4){ */
+        /*   bij_v4 = one_v4; */
+        /*   bij_d_v4 = zero_v4; */
+        /* } else  */
+        /* if (!tmp_lt_c1){ */
+        /*   bij_v4 = one_v4 / simd_vsqrtd(tmp_v4); */
+        /*   bij_d_v4 = -half_v4 * beta_v4 * bij_v4 * bij_v4 * bij_v4; */
+        /* } else { */
         doublev4 tmp_n_v4 = simd_vpowd(tmp_v4, powern_v4);
         doublev4 tmp_n_p1_v4 = one_v4 + tmp_n_v4;
-        //doublev4 tmp_n_p1_v4 = simd_bcastf(1.0) + tmp_n_v4;
-        doublev4 bij_v4 = simd_vpowd(tmp_n_p1_v4, -half_powern_inv_v4);
-        //doublev4 bij_d_v4 = simd_bcastf(-0.5) * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
-        doublev4 bij_d_v4 = -half_v4 * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
-        //doublev4 zero_v4 = simd_bcastf(0.0);
+        bij_v4 = simd_vpowd(tmp_n_p1_v4, -half_powern_inv_v4);
+        bij_d_v4 = -half_v4 * bij_v4 * tmp_n_v4 / (zeta_ij_v4 * tmp_n_p1_v4);
+        /* } */
+
         bij_v4 = simd_vseleq(param2->vec.skip_f, bij_v4, zero_v4);
-        //doublev4 fpair_v4 = simd_bcastf(0.5) * bij_v4 * fa_d_v4 * rijinv_v4;
         doublev4 fpair_v4 = half_v4 * bij_v4 * fa_d_v4 * rijinv_v4;
-        //doublev4 prefactor_v4 = simd_bcastf(-0.5) * fa_v4 * bij_d_v4;
         doublev4 prefactor_v4 = -half_v4 * fa_v4 * bij_d_v4;
         doublev4 evdwl_v4 = half_v4 * bij_v4 * fa_v4;
 
@@ -850,7 +965,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
         fytmp_v4 += fij_v4[1];
         fztmp_v4 += fij_v4[2];
         if (l_pm.evflag){
-          //doublev4 half_v4 = simd_bcastf(0.5);
           doublev4 fac_v4 = simd_vseleq(param2->vec.skip_ev, half_v4, zero_v4) + fac2_base_v4;
           eng_vdwl_v4 += evdwl_v4 * fac_v4;
           doublev4 v_v4[6];
@@ -889,9 +1003,8 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           doublev4 Dinv_v4   = param3[kk].vec.bigdinv;
           doublev4 ters_lam3_v4 = param3[kk].vec.lam3;
           doublev4 ex_delr_v4 = ex_delr_j_v4[kk];
-          //simd_load(ex_delr_v4, ex_delr_j[kk]);
           doublev4 ex_delr_d_v4 = ters_lam3_v4 * ex_delr_v4;
-          doublev4 ex_delr_d_cu_v4 = three_v4 * //simd_bcastf(3.0) * 
+          doublev4 ex_delr_d_cu_v4 = three_v4 *
             ters_lam3_v4 * ters_lam3_v4 * ters_lam3_v4 *
             (rij_v4 - rik_v4) * (rij_v4 - rik_v4) * ex_delr_v4;
           ex_delr_d_v4 = simd_vseleq(param3[kk].vec.power3, ex_delr_d_v4, ex_delr_d_cu_v4);
@@ -964,8 +1077,6 @@ void pair_tersoff_compute_attractive_para(pair_tersoff_compute_param_t *pm){
           fztmp_v4 += tfi_v4[2];
           
           doublev4 fac3_v4 = fac3_base_v4;
-          //doublev4 zero_v4 = simd_bcastf(0.0);
-          //doublev4 third_v4 = simd_bcastf(THIRD);
           
           if (k < nlocal) {
             //fac3_v4 = fac3_v4 + third_v4;//simd_bcastf(THIRD);

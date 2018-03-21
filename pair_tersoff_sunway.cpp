@@ -149,7 +149,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   double delr1[3],delr2[3],fi[3],fj[3],fk[3];
   double zeta_ij,zeta_ji,prefactor_ij, prefactor_ji;
   int *ilist,*jlist,*klist,*numneigh,**firstneigh;
-  short_neigh_t *jlist_short, *klist_short, *jshort, *kshort, *neighshort;;
+  //short_neigh_t *jlist_short, *klist_short, *jshort, *kshort, *neighshort;;
   double dij[3], dji[3], djk[3], dik[3], r2ij, r2jk, r2ik;
   evdwl = 0.0;
   if (eflag || vflag) ev_setup(eflag,vflag);
@@ -177,7 +177,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   for (ii = 0; ii < allnum; ii ++){
     neightotal += numneigh[ii];
   }
-  short_neigh_t *shortlist;
+  //short_neigh_t *shortlist;
 
   tersoff_param_t *cparams;
   memory->create(cparams, nelements * nelements * nelements, "pair:cparams");
@@ -265,7 +265,7 @@ void PairTersoffSunway::compute(int eflag, int vflag){
   pm.firstshort = firstshort;
   pm.firstneigh = firstneigh;
   pm.shortidx   = shortidx;
-  pm.shortlist  = shortlist;
+  //pm.shortlist  = shortlist;
   pm.elem2param = elem2param[0][0];
   pm.map        = map;
   pm.params     = cparams;
